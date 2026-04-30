@@ -3,11 +3,13 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+use tracing::warn;
 use unmasking_did::alchemy::AlchemyClient;
 use unmasking_did::config::Config;
 use unmasking_did::ens::EnsRecord;
 use unmasking_did::linking::{cluster_by_funding, link_and_persist};
 use unmasking_did::metrics::{gini, nakamoto_coefficient};
+use unmasking_did::resolvers::{EnsResolver, SafeResolver};
 use unmasking_did::safe::SafeOwner;
 use unmasking_did::storage::{connect, run_migrations, Repo};
 
@@ -20,7 +22,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Fetch on-chain transfers for an address and store them locally.
+    /// Ingest one address: fetch transfers, ENS records, and Safe
+    /// ownership in a single best-effort pass. Resolver failures are
+    /// logged and skipped — only the transfers ingest is mandatory.
     Ingest {
         /// 0x-prefixed Ethereum address to ingest.
         #[arg(long)]
@@ -43,9 +47,10 @@ enum Command {
         #[arg(long, default_value_t = 1)]
         min_evidence: usize,
     },
-    /// Manually attach off-chain handles (twitter / github / telegram) to
-    /// an address. Until the automated ENS resolver lands (PR 2.5), this
-    /// is how `ens_records` gets populated.
+    /// Manually attach off-chain handles (twitter / github / telegram)
+    /// to an address. The automated resolver in `ingest` populates the
+    /// same table; this command is for testing and overriding what the
+    /// resolver returned.
     AddEnsRecord {
         #[arg(long)]
         address: String,
@@ -130,11 +135,93 @@ async fn run_ingest(cfg: &Config, repo: &Repo, address: &str) -> Result<()> {
     let earliest_block = transfers.iter().filter_map(|t| t.block_num).min();
     repo.upsert_address(&address, earliest_block).await?;
 
+    // Best-effort enrichment: ENS records and Safe ownership. Network
+    // failures are logged and ignored so a flaky upstream does not
+    // wedge the primary transfers ingest.
+    let ens_resolver = EnsResolver::new(&cfg.ens_resolver_url);
+    let ens_status = match ens_resolver.resolve(&address).await {
+        Ok(Some(record)) => {
+            repo.upsert_ens_record(&record).await?;
+            "stored"
+        }
+        Ok(None) => "no record",
+        Err(e) => {
+            warn!(error = %e, "ENS resolve failed (continuing)");
+            "skipped (resolver error)"
+        }
+    };
+
+    let safe_resolver = SafeResolver::new(&cfg.safe_tx_service_url);
+    let safe_status = match safe_resolver.fetch_owners(&address, earliest_block).await {
+        Ok(Some(owners)) => store_safe_owners(repo, &client, owners).await?,
+        Ok(None) => "not a Safe".to_string(),
+        Err(e) => {
+            warn!(error = %e, "Safe Tx Service fetch failed (continuing)");
+            "skipped (resolver error)".to_string()
+        }
+    };
+
     println!(
-        "ingested address={address} fetched={fetched} new={inserted}",
-        fetched = transfers.len(),
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "address": address,
+            "transfers_fetched": transfers.len(),
+            "transfers_new": inserted,
+            "ens": ens_status,
+            "safe": safe_status,
+        }))?
     );
     Ok(())
+}
+
+async fn store_safe_owners(
+    repo: &Repo,
+    client: &AlchemyClient,
+    mut owners: Vec<SafeOwner>,
+) -> Result<String> {
+    // Refine `owner_is_safe` by probing each owner's bytecode. An
+    // address with code is treated as a contract owner (likely Safe)
+    // and excluded from `safe_owner` evidence per project policy.
+    let mut eoa = 0usize;
+    let mut contract = 0usize;
+    let mut unverified = 0usize;
+    for owner in &mut owners {
+        let probe = client.is_contract(&owner.owner_address).await;
+        if let Err(ref e) = probe {
+            warn!(
+                owner = %owner.owner_address,
+                error = %e,
+                "is_contract probe failed; treating owner as contract (conservative — re-run ingest with a working RPC to refine)"
+            );
+            unverified += 1;
+        }
+        owner.owner_is_safe = classify_owner_probe(probe);
+        if owner.owner_is_safe {
+            contract += 1;
+        } else {
+            eoa += 1;
+        }
+        repo.upsert_safe_owner(owner).await?;
+    }
+    Ok(format!(
+        "stored {total} owners ({eoa} EOA, {contract} contract, {unverified} unverified→treated as contract)",
+        total = eoa + contract,
+    ))
+}
+
+/// Map an `is_contract` probe result to the `owner_is_safe` flag.
+///
+/// On probe failure, prefer the false-negative (under-cluster) over the
+/// false-positive (false merge): an unverified owner is marked as
+/// contract-like and dropped from `safe_owner` evidence until a future
+/// ingest with a working RPC can refine. The previous behavior — treat
+/// probe failure as EOA — would have let a flaky RPC silently merge
+/// Safes through what was actually another Safe.
+fn classify_owner_probe(probe: Result<bool>) -> bool {
+    match probe {
+        Ok(is_contract) => is_contract,
+        Err(_) => true,
+    }
 }
 
 async fn run_link(repo: &Repo, addresses: Vec<String>, min_evidence: usize) -> Result<()> {
@@ -279,5 +366,22 @@ mod tests {
     #[test]
     fn normalize_rejects_short_address() {
         assert!(normalize_address("0x1234").is_err());
+    }
+
+    #[test]
+    fn classify_owner_probe_passes_through_success() {
+        assert!(classify_owner_probe(Ok(true)));
+        assert!(!classify_owner_probe(Ok(false)));
+    }
+
+    #[test]
+    fn classify_owner_probe_treats_failure_as_contract() {
+        // Regression: a flaky RPC must not silently turn an unverified
+        // owner into evidence-eligible "EOA" and merge Safes through it.
+        let probe: Result<bool> = Err(anyhow!("simulated RPC failure"));
+        assert!(
+            classify_owner_probe(probe),
+            "probe failure must be classified as contract (conservative under-cluster)"
+        );
     }
 }

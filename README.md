@@ -56,10 +56,26 @@ cp .env.example .env
 
 cargo run -- ingest --address 0xVitalikButerin...
 cargo run -- ingest --address 0xSomeOtherAddr...
-cargo run -- add-ens-record --address 0xVitalik... --twitter @VitalikButerin --github vbuterin
 cargo run -- link --min-evidence 1
 cargo run -- metrics --threshold 0.5
 ```
+
+`ingest` does three things in one shot, all best-effort:
+
+1. fetches transfers from `alchemy_getAssetTransfers`,
+2. resolves the address against an ENS service (default
+   `api.ensideas.com`, override via `ENS_RESOLVER_URL`) and stores any
+   `name` / twitter / github / telegram into `ens_records`,
+3. queries the Safe Transaction Service (default
+   `safe-transaction-mainnet.safe.global`, override via
+   `SAFE_TX_SERVICE_URL`) — if the address is a Safe, it stores
+   `safe_owners` rows and probes each owner with `eth_getCode` to
+   distinguish EOA owners from contract (likely Safe-of-safe) owners.
+
+A network failure on step 2 or 3 is logged and skipped — only the
+primary transfers ingest is mandatory. ENS records and Safe ownership
+can also be entered manually with `add-ens-record` / `add-safe-owner`
+for testing or to override what the resolvers returned.
 
 `ingest` writes to a local SQLite at `DATABASE_URL` (default
 `sqlite://data/unmask.db`). Re-runs hit the cache; the schema enforces
@@ -88,8 +104,8 @@ Evidence kinds shipping today:
 | Kind            | Strength | Source                                | Status        |
 |-----------------|----------|---------------------------------------|---------------|
 | `funded_by`     | medium   | `alchemy_getAssetTransfers` cache     | M1, automated |
-| `ens_handle`    | medium   | `ens_records` table (manual entry)    | M2, manual    |
-| `safe_owner`    | medium   | `safe_owners` table (EOA owners only) | M2, manual    |
+| `ens_handle`    | medium   | `ens_records` (auto via `ingest`)     | M2.5, automated |
+| `safe_owner`    | medium   | `safe_owners` (auto via `ingest`, EOA owners only) | M2.5, automated |
 | `did_controller`| strong   | `did:ethr` / `did:pkh` documents      | M3, planned   |
 
 `ens_handle` keys take the form `"<service>:<handle>"` with the handle
@@ -101,8 +117,7 @@ themselves Safes are recorded for audit (`owner_is_safe = 1`) but
 excluded from edge generation: shared Safe-of-safe ownership tells us
 nothing about human-level control on its own.
 
-Until the automated resolvers land (PR 2.5 for ENS, PR 3.5 for Safe Tx
-Service), populate the caches manually:
+Manual entry remains available for testing and overrides:
 
 ```bash
 cargo run -- add-ens-record \
@@ -118,11 +133,11 @@ cargo run -- add-safe-owner \
   pipeline split into `extract → attest → build`, full audit trail in
   `evidence` / `entity_clusters` / `clustering_runs`.
 - **M2 — ENS and Safe linking** *(done)*: ENS text-record co-handle and
-  Safe shared-EOA-owner evidence shipping; both populated via manual CLI
-  for now.
-- **M2.5 — automated resolvers**: replace `add-ens-record` with a
-  subgraph or contract-call ingestor; replace `add-safe-owner` with a
-  Safe Transaction Service ingestor.
+  Safe shared-EOA-owner evidence, both as medium signals.
+- **M2.5 — automated resolvers** *(done)*: `ingest` now also fetches
+  ENS records (REST shim, configurable) and Safe ownership (Safe Tx
+  Service); each Safe owner is probed with `eth_getCode` so contract
+  owners are flagged as non-EOA and excluded from clustering.
 - **M3 — DID and metrics**: ingest `did:ethr` / `did:pkh` documents via
   `ssi`, link by proven controller key (strong evidence), surface
   decentralization metrics in a small report (HTML or notebook).
@@ -134,10 +149,11 @@ src/
   main.rs        clap CLI
   lib.rs         re-exports
   config.rs      env loading (ALCHEMY_API_KEY, DATABASE_URL)
-  alchemy/       JSON-RPC wrapper + alchemy_getAssetTransfers
-  ens/           ENS records (manual entry — automated resolver in PR 2.5)
-  safe/          Safe owner records (manual entry — automated resolver in PR 3.5)
+  alchemy/       JSON-RPC wrapper + alchemy_getAssetTransfers + eth_getCode
+  ens/           EnsRecord type
+  safe/          SafeOwner type
   evidence/      Strength + EvidenceKind types, per-kind extractors
+  resolvers/     HTTP wrappers around ENS REST shim + Safe Tx Service
   storage/       SQLite schema + sqlx repo
   linking/       feature extraction + union-find
   metrics/       Nakamoto coefficient, Gini

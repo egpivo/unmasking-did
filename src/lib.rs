@@ -4,5 +4,6 @@ pub mod ens;
 pub mod evidence;
 pub mod linking;
 pub mod metrics;
+pub mod resolvers;
 pub mod safe;
 pub mod storage;
