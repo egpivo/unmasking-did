@@ -135,22 +135,31 @@ impl Repo {
         Ok(rows.into_iter().map(|r| r.get::<String, _>(0)).collect())
     }
 
-    /// Replace every attestation row whose `address` is in the given
-    /// set with the supplied `new_attestations`. Used by `link_addresses`
-    /// so that re-extraction reflects the *current* state of mutable
-    /// caches (`safe_owners`, `ens_records`): if a record was corrected
-    /// — e.g. an owner re-flagged as a Safe — the old derived
-    /// attestation must not survive into the next clustering run.
+    /// Replace every attestation row of the given `kind` whose `address`
+    /// is in the input set, with the supplied `new_attestations`.
+    /// Used by `link_addresses` to refresh derived evidence (one call
+    /// per derived kind) without disturbing rows of other kinds — most
+    /// importantly, future strong evidence (`did_controller`) or any
+    /// attestations injected by callers outside the link pipeline.
     ///
-    /// `funded_by` attestations are also wiped here, but the next
-    /// extract regenerates them deterministically from the immutable
-    /// `transfers` cache, so the only observable effect for that kind
-    /// is idempotent re-creation.
-    pub async fn replace_attestations_for_addresses(
+    /// All entries in `new_attestations` MUST have `kind == kind`; the
+    /// function panics on mismatch since that would silently violate
+    /// the scoping contract.
+    pub async fn replace_attestations_for_kind(
         &self,
         addresses: &[String],
+        kind: EvidenceKind,
         new_attestations: &[Attestation],
     ) -> Result<usize> {
+        for a in new_attestations {
+            assert!(
+                a.kind == kind,
+                "replace_attestations_for_kind: attestation kind {:?} does not match scope {:?}",
+                a.kind,
+                kind
+            );
+        }
+
         let mut tx = self.pool.begin().await?;
 
         if !addresses.is_empty() {
@@ -158,14 +167,19 @@ impl Repo {
                 .map(|i| format!("?{i}"))
                 .collect::<Vec<_>>()
                 .join(",");
-            let sql = format!("DELETE FROM evidence WHERE address IN ({placeholders})");
+            let kind_param_idx = addresses.len() + 1;
+            let sql = format!(
+                "DELETE FROM evidence
+                 WHERE address IN ({placeholders}) AND kind = ?{kind_param_idx}"
+            );
             let mut q = sqlx::query(&sql);
             for a in addresses {
                 q = q.bind(a.to_lowercase());
             }
+            q = q.bind(kind.as_str());
             q.execute(&mut *tx)
                 .await
-                .context("replace_attestations_for_addresses: delete failed")?;
+                .context("replace_attestations_for_kind: delete failed")?;
         }
 
         let mut inserted = 0usize;
@@ -184,7 +198,7 @@ impl Repo {
             .bind(a.payload_json.as_deref())
             .execute(&mut *tx)
             .await
-            .context("replace_attestations_for_addresses: insert failed")?;
+            .context("replace_attestations_for_kind: insert failed")?;
             inserted += res.rows_affected() as usize;
         }
         tx.commit().await?;

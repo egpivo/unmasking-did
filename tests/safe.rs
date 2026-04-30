@@ -9,7 +9,7 @@
 //!   * `extract_safe_owner` filters out `owner_is_safe = true`
 //!     attestations before they reach the evidence table.
 
-use unmasking_did::evidence::{extract_safe_owner, EvidenceKind, Strength};
+use unmasking_did::evidence::{extract_safe_owner, Attestation, EvidenceKind, Strength};
 use unmasking_did::linking::link_addresses;
 use unmasking_did::safe::SafeOwner;
 use unmasking_did::storage::{connect, run_migrations, Repo};
@@ -140,6 +140,71 @@ async fn add_safe_owner_does_not_make_owner_a_clustering_subject() {
         !known.contains(&owner.to_string()),
         "Safe owner must not enter `addresses` as a clustering subject"
     );
+}
+
+#[tokio::test]
+async fn link_does_not_disturb_evidence_outside_its_owned_kinds() {
+    // Regression for P2 (round 2): the previous fix wiped *all*
+    // evidence rows for the input addresses. That made link_addresses
+    // destructive beyond the derived caches it actually owns
+    // (transfers / ens_records / safe_owners). Strong evidence from a
+    // future kind (`did_controller`) — or anything injected manually —
+    // must survive a link run untouched.
+    let repo = fresh_repo().await;
+    let safe_a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let controller = "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0";
+
+    repo.upsert_address(safe_a, None).await.unwrap();
+    repo.insert_attestations(&[Attestation {
+        address: safe_a.to_string(),
+        kind: EvidenceKind::DidController,
+        key: controller.to_string(),
+        strength: Strength::Strong,
+        source: "manual:m3-precursor".to_string(),
+        observed_block: 42,
+        payload_json: None,
+    }])
+    .await
+    .unwrap();
+
+    let _ = link_addresses(&repo, &[safe_a.into()], 1).await.unwrap();
+
+    let after = repo.attestations_for(&[safe_a.into()]).await.unwrap();
+    assert!(
+        after.iter().any(|a| a.kind == EvidenceKind::DidController
+            && a.strength == Strength::Strong
+            && a.key == controller),
+        "link_addresses must not touch attestation kinds it does not own"
+    );
+}
+
+#[tokio::test]
+async fn duplicate_input_addresses_do_not_blow_up_unique_constraint() {
+    // Regression for P3: passing the same address multiple times via
+    // `--addresses` previously generated duplicate attestations and
+    // crashed on the evidence UNIQUE constraint at insert time.
+    // Dedup at the link_addresses boundary fixes it.
+    let repo = fresh_repo().await;
+    let safe_a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let safe_b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let eoa = "0xcccccccccccccccccccccccccccccccccccccccc";
+
+    repo.upsert_safe_owner(&edge(safe_a, eoa, false)).await.unwrap();
+    repo.upsert_safe_owner(&edge(safe_b, eoa, false)).await.unwrap();
+    repo.upsert_address(safe_a, None).await.unwrap();
+    repo.upsert_address(safe_b, None).await.unwrap();
+
+    let inputs = vec![
+        safe_a.to_string(),
+        safe_b.to_string(),
+        safe_a.to_string(), // dup
+        safe_a.to_string(), // dup
+        safe_b.to_string(), // dup
+    ];
+    let out = link_addresses(&repo, &inputs, 1).await.unwrap();
+
+    assert_eq!(out.clusters.len(), 1, "dedup'd input should still merge via shared EOA");
+    assert_eq!(out.clusters[0].addresses.len(), 2);
 }
 
 #[tokio::test]
