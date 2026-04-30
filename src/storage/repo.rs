@@ -6,6 +6,7 @@ use std::str::FromStr;
 use crate::alchemy::Transfer;
 use crate::ens::EnsRecord;
 use crate::evidence::{Attestation, EvidenceKind, Strength};
+use crate::safe::SafeOwner;
 
 pub async fn connect(database_url: &str) -> Result<SqlitePool> {
     let opts = SqliteConnectOptions::from_str(database_url)
@@ -277,6 +278,59 @@ impl Repo {
                 twitter: r.get("twitter"),
                 github: r.get("github"),
                 telegram: r.get("telegram"),
+            })
+            .collect())
+    }
+
+    pub async fn upsert_safe_owner(&self, owner: &SafeOwner) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO safe_owners
+                (safe_address, owner_address, owner_is_safe, threshold, observed_block, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(safe_address, owner_address) DO UPDATE SET
+                owner_is_safe  = excluded.owner_is_safe,
+                threshold      = excluded.threshold,
+                observed_block = excluded.observed_block,
+                source         = excluded.source",
+        )
+        .bind(owner.safe_address.to_lowercase())
+        .bind(owner.owner_address.to_lowercase())
+        .bind(if owner.owner_is_safe { 1i64 } else { 0i64 })
+        .bind(owner.threshold)
+        .bind(owner.observed_block)
+        .bind(&owner.source)
+        .execute(&self.pool)
+        .await
+        .context("upsert_safe_owner failed")?;
+        Ok(())
+    }
+
+    /// Return every recorded owner of `safe_address`, including those
+    /// flagged as Safes themselves. The extractor is responsible for
+    /// dropping non-EOA owners before emitting evidence.
+    pub async fn safe_owners_of(&self, safe_address: &str) -> Result<Vec<SafeOwner>> {
+        let rows = sqlx::query(
+            "SELECT safe_address, owner_address, owner_is_safe, threshold, observed_block, source
+             FROM safe_owners
+             WHERE safe_address = ?1",
+        )
+        .bind(safe_address.to_lowercase())
+        .fetch_all(&self.pool)
+        .await
+        .context("safe_owners_of query failed")?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let is_safe_int: i64 = r.get("owner_is_safe");
+                SafeOwner {
+                    safe_address: r.get("safe_address"),
+                    owner_address: r.get("owner_address"),
+                    owner_is_safe: is_safe_int != 0,
+                    threshold: r.get("threshold"),
+                    observed_block: r.get("observed_block"),
+                    source: r.get("source"),
+                }
             })
             .collect())
     }

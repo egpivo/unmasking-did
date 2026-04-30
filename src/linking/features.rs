@@ -4,7 +4,9 @@ use petgraph::unionfind::UnionFind as PetUnionFind;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
-use crate::evidence::{extract_ens_handle, extract_funded_by, Attestation, EvidenceKind, Strength};
+use crate::evidence::{
+    extract_ens_handle, extract_funded_by, extract_safe_owner, Attestation, EvidenceKind, Strength,
+};
 use crate::storage::Repo;
 
 /// Maximum number of addresses that may share a single `(kind, key)`
@@ -144,6 +146,7 @@ pub async fn link_addresses(
 
     let mut attestations = extract_funded_by(repo, &normalized, &blacklist).await?;
     attestations.extend(extract_ens_handle(repo, &normalized).await?);
+    attestations.extend(extract_safe_owner(repo, &normalized).await?);
     repo.insert_attestations(&attestations).await?;
 
     cluster_from_evidence(repo, &normalized, min_evidence).await

@@ -8,6 +8,7 @@ use unmasking_did::config::Config;
 use unmasking_did::ens::EnsRecord;
 use unmasking_did::linking::{cluster_by_funding, link_and_persist};
 use unmasking_did::metrics::{gini, nakamoto_coefficient};
+use unmasking_did::safe::SafeOwner;
 use unmasking_did::storage::{connect, run_migrations, Repo};
 
 #[derive(Parser, Debug)]
@@ -57,6 +58,22 @@ enum Command {
         #[arg(long)]
         telegram: Option<String>,
     },
+    /// Manually record one Safe → owner edge. Only EOA owners
+    /// participate in clustering as `safe_owner` evidence; pass
+    /// `--owner-is-safe` to record a Safe-of-safe edge for audit
+    /// without it influencing merges.
+    AddSafeOwner {
+        #[arg(long)]
+        safe: String,
+        #[arg(long)]
+        owner: String,
+        #[arg(long, default_value_t = false)]
+        owner_is_safe: bool,
+        #[arg(long)]
+        threshold: Option<i64>,
+        #[arg(long)]
+        observed_block: Option<i64>,
+    },
 }
 
 #[tokio::main]
@@ -91,6 +108,13 @@ async fn main() -> Result<()> {
             github,
             telegram,
         } => run_add_ens_record(&repo, address, name, twitter, github, telegram).await,
+        Command::AddSafeOwner {
+            safe,
+            owner,
+            owner_is_safe,
+            threshold,
+            observed_block,
+        } => run_add_safe_owner(&repo, safe, owner, owner_is_safe, threshold, observed_block).await,
     }
 }
 
@@ -185,6 +209,36 @@ async fn run_add_ens_record(
     };
     repo.upsert_ens_record(&record).await?;
     repo.upsert_address(&address, None).await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "stored": record,
+        }))?
+    );
+    Ok(())
+}
+
+async fn run_add_safe_owner(
+    repo: &Repo,
+    safe: String,
+    owner: String,
+    owner_is_safe: bool,
+    threshold: Option<i64>,
+    observed_block: Option<i64>,
+) -> Result<()> {
+    let safe_address = normalize_address(&safe)?;
+    let owner_address = normalize_address(&owner)?;
+    let record = SafeOwner {
+        safe_address: safe_address.clone(),
+        owner_address: owner_address.clone(),
+        owner_is_safe,
+        threshold,
+        observed_block,
+        source: "manual".to_string(),
+    };
+    repo.upsert_safe_owner(&record).await?;
+    repo.upsert_address(&safe_address, observed_block).await?;
+    repo.upsert_address(&owner_address, observed_block).await?;
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
