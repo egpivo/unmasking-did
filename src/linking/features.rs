@@ -4,7 +4,7 @@ use petgraph::unionfind::UnionFind as PetUnionFind;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
-use crate::evidence::{extract_funded_by, Attestation, EvidenceKind, Strength};
+use crate::evidence::{extract_ens_handle, extract_funded_by, Attestation, EvidenceKind, Strength};
 use crate::storage::Repo;
 
 /// Maximum number of addresses that may share a single `(kind, key)`
@@ -46,9 +46,10 @@ pub struct ClusterReport {
     /// same inputs.
     pub cluster_id: String,
     pub addresses: Vec<String>,
-    /// The set of evidence keys (e.g. funder addresses) that justified
-    /// at least one merge inside this cluster.
-    pub shared_funders: Vec<String>,
+    /// The set of evidence keys (funder addresses, `service:handle`
+    /// strings, controller keys, …) that justified at least one merge
+    /// inside this cluster.
+    pub shared_evidence_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -105,7 +106,7 @@ pub async fn link_and_persist(
 
     for cluster in &output.clusters {
         let evidence_json = serde_json::json!({
-            "shared_funders": cluster.shared_funders,
+            "shared_evidence_keys": cluster.shared_evidence_keys,
         })
         .to_string();
         repo.insert_cluster(&run_id, &cluster.cluster_id, &cluster.addresses, &evidence_json)
@@ -128,10 +129,11 @@ fn generate_run_id() -> String {
     format!("run-{micros}")
 }
 
-/// Full M1 link pass: extract → persist → build. Persistence to
-/// `entity_clusters` and `suspected_service_keys` is handled by the
-/// caller (the CLI), so this function stays pure with respect to
-/// downstream tables.
+/// Full link pass: extract every supported evidence kind from the local
+/// caches, persist new attestations, build clusters from the union of all
+/// persisted evidence. Persistence to `entity_clusters` and
+/// `suspected_service_keys` is handled by the caller (the CLI), so this
+/// function stays pure with respect to downstream cluster tables.
 pub async fn link_addresses(
     repo: &Repo,
     addresses: &[String],
@@ -140,7 +142,8 @@ pub async fn link_addresses(
     let blacklist = cex_blacklist();
     let normalized: Vec<String> = addresses.iter().map(|a| a.to_lowercase()).collect();
 
-    let attestations = extract_funded_by(repo, &normalized, &blacklist).await?;
+    let mut attestations = extract_funded_by(repo, &normalized, &blacklist).await?;
+    attestations.extend(extract_ens_handle(repo, &normalized).await?);
     repo.insert_attestations(&attestations).await?;
 
     cluster_from_evidence(repo, &normalized, min_evidence).await
@@ -254,11 +257,11 @@ fn build_clusters(
                 indices.iter().map(|&i| graph[i].clone()).collect();
             addresses.sort();
             let cluster_id = addresses[0].clone();
-            let shared_funders = collect_shared_keys(&indices, &per_pair);
+            let shared_evidence_keys = collect_shared_keys(&indices, &per_pair);
             ClusterReport {
                 cluster_id,
                 addresses,
-                shared_funders,
+                shared_evidence_keys,
             }
         })
         .collect();

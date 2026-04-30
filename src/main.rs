@@ -5,6 +5,7 @@ use tracing_subscriber::EnvFilter;
 
 use unmasking_did::alchemy::AlchemyClient;
 use unmasking_did::config::Config;
+use unmasking_did::ens::EnsRecord;
 use unmasking_did::linking::{cluster_by_funding, link_and_persist};
 use unmasking_did::metrics::{gini, nakamoto_coefficient};
 use unmasking_did::storage::{connect, run_migrations, Repo};
@@ -41,6 +42,21 @@ enum Command {
         #[arg(long, default_value_t = 1)]
         min_evidence: usize,
     },
+    /// Manually attach off-chain handles (twitter / github / telegram) to
+    /// an address. Until the automated ENS resolver lands (PR 2.5), this
+    /// is how `ens_records` gets populated.
+    AddEnsRecord {
+        #[arg(long)]
+        address: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        twitter: Option<String>,
+        #[arg(long)]
+        github: Option<String>,
+        #[arg(long)]
+        telegram: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -68,6 +84,13 @@ async fn main() -> Result<()> {
             threshold,
             min_evidence,
         } => run_metrics(&repo, threshold, min_evidence).await,
+        Command::AddEnsRecord {
+            address,
+            name,
+            twitter,
+            github,
+            telegram,
+        } => run_add_ens_record(&repo, address, name, twitter, github, telegram).await,
     }
 }
 
@@ -136,6 +159,38 @@ async fn run_metrics(repo: &Repo, threshold: f64, min_evidence: usize) -> Result
         "gini": gini(&sizes),
     });
     println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
+async fn run_add_ens_record(
+    repo: &Repo,
+    address: String,
+    name: Option<String>,
+    twitter: Option<String>,
+    github: Option<String>,
+    telegram: Option<String>,
+) -> Result<()> {
+    let address = normalize_address(&address)?;
+    if name.is_none() && twitter.is_none() && github.is_none() && telegram.is_none() {
+        return Err(anyhow!(
+            "at least one of --name / --twitter / --github / --telegram must be provided"
+        ));
+    }
+    let record = EnsRecord {
+        address: address.clone(),
+        name,
+        twitter,
+        github,
+        telegram,
+    };
+    repo.upsert_ens_record(&record).await?;
+    repo.upsert_address(&address, None).await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "stored": record,
+        }))?
+    );
     Ok(())
 }
 

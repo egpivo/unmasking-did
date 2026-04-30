@@ -47,7 +47,7 @@ async fn shared_non_cex_funder_merges_addresses() {
     assert_eq!(only.addresses.len(), 2);
     assert!(only.addresses.contains(&alice.to_string()));
     assert!(only.addresses.contains(&bob.to_string()));
-    assert!(only.shared_funders.contains(&funder.to_string()));
+    assert!(only.shared_evidence_keys.contains(&funder.to_string()));
 }
 
 #[tokio::test]
