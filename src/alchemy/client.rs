@@ -46,6 +46,23 @@ impl AlchemyClient {
         }
     }
 
+    /// Returns `true` when `address` has non-empty bytecode at the
+    /// latest block — i.e. it is a contract account, not an EOA.
+    /// Used by the ingest pipeline to decide whether a Safe owner
+    /// should be flagged `owner_is_safe = true` (treating any contract
+    /// owner as non-EOA, which is the conservative reading of the
+    /// project's "EOA owners only" rule).
+    pub async fn is_contract(&self, address: &str) -> Result<bool> {
+        let result = self
+            .call("eth_getCode", &[serde_json::json!(address), serde_json::json!("latest")])
+            .await?;
+        let code = result
+            .as_str()
+            .ok_or_else(|| anyhow!("eth_getCode response is not a string"))?;
+        // `0x` (no bytecode) → EOA. Anything longer → contract.
+        Ok(code.len() > 2)
+    }
+
     pub async fn get_asset_transfers(&self, to_address: &str) -> Result<Vec<Transfer>> {
         let mut all = Vec::new();
         let mut page_key: Option<String> = None;
