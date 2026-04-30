@@ -135,7 +135,8 @@ async fn run_ingest(cfg: &Config, repo: &Repo, address: &str) -> Result<()> {
     let address = normalize_address(address)?;
     info!(%address, "fetching transfers from Alchemy");
 
-    let client = AlchemyClient::new(&cfg.alchemy_api_key);
+    let client = AlchemyClient::with_base_url(&cfg.alchemy_base_url, &cfg.alchemy_api_key)
+        .with_transfer_categories(cfg.alchemy_transfer_categories.clone());
     let transfers = client.get_asset_transfers(&address).await?;
     info!(count = transfers.len(), "fetched transfers");
 

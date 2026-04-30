@@ -176,6 +176,23 @@ migrations/      initial schema
 tests/           integration tests
 ```
 
+## Non-mainnet usage
+
+`unmasking-did` can run against any Alchemy-supported EVM network by changing the Alchemy base URL and transfer categories.
+
+For Scroll:
+
+```env
+ALCHEMY_BASE_URL=https://scroll-mainnet.g.alchemy.com/v2
+ALCHEMY_TRANSFER_CATEGORIES=external,erc20
+SAFE_TX_SERVICE_URL=https://transaction-scroll.safe.global
+```
+Notes:
+
+- ENS resolution is still Ethereum-mainnet oriented, so many L2 addresses will not have ENS records.
+- Funding evidence on L2s is often bridge-heavy. High fan-out funders should be filtered or down-weighted.
+- Safe queries require the chain-specific Safe Transaction Service URL.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
