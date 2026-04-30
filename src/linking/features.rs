@@ -1,16 +1,20 @@
 use anyhow::Result;
+use petgraph::graph::{NodeIndex, UnGraph};
+use petgraph::unionfind::UnionFind as PetUnionFind;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
+use crate::evidence::{extract_funded_by, Attestation, EvidenceKind, Strength};
 use crate::storage::Repo;
 
-use super::union_find::UnionFind;
+/// Maximum number of addresses that may share a single `(kind, key)`
+/// before the key is flagged as service-like and excluded from edge
+/// generation. The cap is intentionally low: real entity-control
+/// signals fan out narrowly, while CEX hot wallets, bridges, batch
+/// distributors, and faucets fan out broadly. Behavioral detection
+/// catches new services that no hardcoded blacklist could anticipate.
+const FAN_OUT_CAP: usize = 50;
 
-/// Service / hot-wallet addresses that should not be treated as evidence
-/// of shared control. Funding from these is uninformative because they
-/// fan out to thousands or millions of unrelated users.
-///
-/// All addresses MUST be lowercase to match storage normalization.
 const CEX_BLACKLIST: &[&str] = &[
     // Binance hot wallets
     "0x28c6c06298d514db089934071355e5743bf21d60",
@@ -37,67 +41,220 @@ pub fn cex_blacklist() -> HashSet<String> {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ClusterReport {
-    pub cluster_id: usize,
+    /// Deterministic cluster identifier: the lexicographically smallest
+    /// lowercase address in the cluster. Stable across runs given the
+    /// same inputs.
+    pub cluster_id: String,
     pub addresses: Vec<String>,
+    /// The set of evidence keys (e.g. funder addresses) that justified
+    /// at least one merge inside this cluster.
     pub shared_funders: Vec<String>,
 }
 
-/// Build a union-find of `addresses` where two addresses are merged when
-/// they share at least `min_evidence` distinct non-CEX funders. Returns
-/// the resulting clusters along with the funders that justified the merge.
+#[derive(Debug, Clone, Serialize)]
+pub struct SkippedKey {
+    pub kind: String,
+    pub key: String,
+    pub fan_out: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkingOutput {
+    pub clusters: Vec<ClusterReport>,
+    pub skipped_service_keys: Vec<SkippedKey>,
+}
+
+#[derive(Debug, Clone)]
+struct EdgeLabel {
+    key: String,
+    strength: Strength,
+}
+
+/// Backwards-compatible orchestrator: extract funded_by attestations,
+/// persist them, build clusters, return just the clusters. Callers that
+/// also need the list of skipped service-like keys should use
+/// [`link_addresses`] directly.
 pub async fn cluster_by_funding(
     repo: &Repo,
     addresses: &[String],
     min_evidence: usize,
 ) -> Result<Vec<ClusterReport>> {
+    Ok(link_addresses(repo, addresses, min_evidence).await?.clusters)
+}
+
+/// End-to-end M1 link pass with full audit persistence: opens a
+/// `clustering_runs` row, runs [`link_addresses`], writes clusters into
+/// `entity_clusters` and any fan-out-cap hits into `suspected_service_keys`.
+/// Returns the generated `run_id` alongside the in-memory output so the
+/// CLI can print both.
+pub async fn link_and_persist(
+    repo: &Repo,
+    addresses: &[String],
+    min_evidence: usize,
+) -> Result<(String, LinkingOutput)> {
+    let run_id = generate_run_id();
+    let params = serde_json::json!({
+        "min_evidence": min_evidence,
+        "address_count": addresses.len(),
+        "fan_out_cap": FAN_OUT_CAP,
+    })
+    .to_string();
+    repo.start_clustering_run(&run_id, &params).await?;
+
+    let output = link_addresses(repo, addresses, min_evidence).await?;
+
+    for cluster in &output.clusters {
+        let evidence_json = serde_json::json!({
+            "shared_funders": cluster.shared_funders,
+        })
+        .to_string();
+        repo.insert_cluster(&run_id, &cluster.cluster_id, &cluster.addresses, &evidence_json)
+            .await?;
+    }
+    for skipped in &output.skipped_service_keys {
+        let kind = EvidenceKind::parse(&skipped.kind).unwrap_or(EvidenceKind::FundedBy);
+        repo.record_suspected_service_key(&run_id, kind, &skipped.key, skipped.fan_out)
+            .await?;
+    }
+
+    Ok((run_id, output))
+}
+
+fn generate_run_id() -> String {
+    let micros = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros())
+        .unwrap_or(0);
+    format!("run-{micros}")
+}
+
+/// Full M1 link pass: extract → persist → build. Persistence to
+/// `entity_clusters` and `suspected_service_keys` is handled by the
+/// caller (the CLI), so this function stays pure with respect to
+/// downstream tables.
+pub async fn link_addresses(
+    repo: &Repo,
+    addresses: &[String],
+    min_evidence: usize,
+) -> Result<LinkingOutput> {
     let blacklist = cex_blacklist();
-
-    let mut funders_by_addr: HashMap<String, HashSet<String>> = HashMap::new();
-    for addr in addresses {
-        let normalized = addr.to_lowercase();
-        let funders = repo
-            .incoming_funders(&normalized)
-            .await?
-            .into_iter()
-            .map(|(f, _)| f.to_lowercase())
-            .filter(|f| !blacklist.contains(f))
-            .collect::<HashSet<_>>();
-        funders_by_addr.insert(normalized, funders);
-    }
-
-    let mut uf: UnionFind<String> = UnionFind::new();
-    for addr in addresses {
-        uf.add(addr.to_lowercase());
-    }
-
     let normalized: Vec<String> = addresses.iter().map(|a| a.to_lowercase()).collect();
 
-    let mut shared_by_pair: HashMap<(String, String), Vec<String>> = HashMap::new();
-    for (i, a) in normalized.iter().enumerate() {
-        for b in normalized.iter().skip(i + 1) {
-            let fa = &funders_by_addr[a];
-            let fb = &funders_by_addr[b];
-            let shared: Vec<String> = fa.intersection(fb).cloned().collect();
-            if shared.len() >= min_evidence.max(1) {
-                uf.union(a, b);
-                let key = if a < b {
-                    (a.clone(), b.clone())
-                } else {
-                    (b.clone(), a.clone())
+    let attestations = extract_funded_by(repo, &normalized, &blacklist).await?;
+    repo.insert_attestations(&attestations).await?;
+
+    cluster_from_evidence(repo, &normalized, min_evidence).await
+}
+
+/// Build clusters strictly from attestations already persisted in the
+/// `evidence` table. Useful for re-running clustering with different
+/// thresholds without re-fetching, and for unit tests that inject
+/// non-funded_by evidence kinds directly.
+pub async fn cluster_from_evidence(
+    repo: &Repo,
+    addresses: &[String],
+    min_evidence: usize,
+) -> Result<LinkingOutput> {
+    let normalized: Vec<String> = addresses.iter().map(|a| a.to_lowercase()).collect();
+    let stored = repo.attestations_for(&normalized).await?;
+    build_clusters(&normalized, &stored, min_evidence)
+}
+
+fn build_clusters(
+    addresses: &[String],
+    attestations: &[Attestation],
+    min_evidence: usize,
+) -> Result<LinkingOutput> {
+    let mut graph: UnGraph<String, EdgeLabel> = UnGraph::new_undirected();
+    let mut node_of: HashMap<String, NodeIndex> = HashMap::new();
+    for addr in addresses {
+        let idx = graph.add_node(addr.clone());
+        node_of.insert(addr.clone(), idx);
+    }
+
+    let mut by_key: HashMap<(EvidenceKind, String), Vec<&Attestation>> = HashMap::new();
+    for a in attestations {
+        by_key.entry((a.kind, a.key.clone())).or_default().push(a);
+    }
+
+    let mut skipped: Vec<SkippedKey> = Vec::new();
+    for ((kind, key), atts) in &by_key {
+        if atts.len() < 2 {
+            continue;
+        }
+        if atts.len() > FAN_OUT_CAP {
+            skipped.push(SkippedKey {
+                kind: kind.as_str().to_string(),
+                key: key.clone(),
+                fan_out: atts.len(),
+            });
+            continue;
+        }
+        for i in 0..atts.len() {
+            for j in (i + 1)..atts.len() {
+                let (Some(&ai), Some(&bi)) =
+                    (node_of.get(&atts[i].address), node_of.get(&atts[j].address))
+                else {
+                    continue;
                 };
-                shared_by_pair.insert(key, shared);
+                let strength = atts[i].strength.max(atts[j].strength);
+                graph.add_edge(
+                    ai,
+                    bi,
+                    EdgeLabel {
+                        key: key.clone(),
+                        strength,
+                    },
+                );
             }
         }
     }
 
-    let components = uf.components();
-    let mut reports: Vec<ClusterReport> = components
-        .into_iter()
-        .enumerate()
-        .map(|(cluster_id, mut addresses)| {
+    type PairStats = (usize, Strength, Vec<String>);
+    let mut per_pair: HashMap<(NodeIndex, NodeIndex), PairStats> = HashMap::new();
+    for edge in graph.edge_indices() {
+        let (a, b) = graph.edge_endpoints(edge).unwrap();
+        let label = graph.edge_weight(edge).unwrap();
+        let key_pair = if a.index() < b.index() { (a, b) } else { (b, a) };
+        let entry = per_pair
+            .entry(key_pair)
+            .or_insert_with(|| (0, Strength::Weak, Vec::new()));
+        entry.0 += 1;
+        if label.strength > entry.1 {
+            entry.1 = label.strength;
+        }
+        entry.2.push(label.key.clone());
+    }
+
+    // Merge invariant — see CLAUDE-skill "Linking Rule":
+    //   * Strong evidence may merge on its own.
+    //   * Otherwise, need ≥ min_evidence edges AND at least one ≥ MEDIUM.
+    //   * Weak alone never merges; weak edges only count toward bulk if
+    //     accompanied by ≥ 1 medium+ edge.
+    let needed = min_evidence.max(1);
+    let mut uf = PetUnionFind::<usize>::new(graph.node_count());
+    for ((a, b), (count, max_strength, _)) in &per_pair {
+        let merge = *max_strength == Strength::Strong
+            || (*count >= needed && *max_strength >= Strength::Medium);
+        if merge {
+            uf.union(a.index(), b.index());
+        }
+    }
+
+    let labels = uf.into_labeling();
+    let mut by_label: HashMap<usize, Vec<NodeIndex>> = HashMap::new();
+    for (i, label) in labels.iter().enumerate() {
+        by_label.entry(*label).or_default().push(NodeIndex::new(i));
+    }
+
+    let mut reports: Vec<ClusterReport> = by_label
+        .into_values()
+        .map(|indices| {
+            let mut addresses: Vec<String> =
+                indices.iter().map(|&i| graph[i].clone()).collect();
             addresses.sort();
-            let shared_funders =
-                collect_shared_funders(&addresses, &funders_by_addr, &shared_by_pair);
+            let cluster_id = addresses[0].clone();
+            let shared_funders = collect_shared_keys(&indices, &per_pair);
             ClusterReport {
                 cluster_id,
                 addresses,
@@ -106,37 +263,39 @@ pub async fn cluster_by_funding(
         })
         .collect();
 
-    reports.sort_by(|x, y| y.addresses.len().cmp(&x.addresses.len()));
-    for (i, r) in reports.iter_mut().enumerate() {
-        r.cluster_id = i;
-    }
-    Ok(reports)
+    reports.sort_by(|x, y| {
+        y.addresses
+            .len()
+            .cmp(&x.addresses.len())
+            .then_with(|| x.cluster_id.cmp(&y.cluster_id))
+    });
+    skipped.sort_by(|a, b| a.kind.cmp(&b.kind).then_with(|| a.key.cmp(&b.key)));
+
+    Ok(LinkingOutput {
+        clusters: reports,
+        skipped_service_keys: skipped,
+    })
 }
 
-fn collect_shared_funders(
-    cluster: &[String],
-    funders_by_addr: &HashMap<String, HashSet<String>>,
-    shared_by_pair: &HashMap<(String, String), Vec<String>>,
+fn collect_shared_keys(
+    indices: &[NodeIndex],
+    per_pair: &HashMap<(NodeIndex, NodeIndex), (usize, Strength, Vec<String>)>,
 ) -> Vec<String> {
-    if cluster.len() < 2 {
-        return Vec::new();
-    }
     let mut all: HashSet<String> = HashSet::new();
-    for (i, a) in cluster.iter().enumerate() {
-        for b in cluster.iter().skip(i + 1) {
-            let key = if a < b {
-                (a.clone(), b.clone())
+    for i in 0..indices.len() {
+        for j in (i + 1)..indices.len() {
+            let key_pair = if indices[i].index() < indices[j].index() {
+                (indices[i], indices[j])
             } else {
-                (b.clone(), a.clone())
+                (indices[j], indices[i])
             };
-            if let Some(funders) = shared_by_pair.get(&key) {
-                for f in funders {
-                    all.insert(f.clone());
+            if let Some((_, _, keys)) = per_pair.get(&key_pair) {
+                for k in keys {
+                    all.insert(k.clone());
                 }
             }
         }
     }
-    let _ = funders_by_addr;
     let mut v: Vec<String> = all.into_iter().collect();
     v.sort();
     v
