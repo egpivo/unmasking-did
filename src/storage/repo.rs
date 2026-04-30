@@ -6,6 +6,7 @@ use std::str::FromStr;
 use crate::alchemy::Transfer;
 use crate::ens::EnsRecord;
 use crate::evidence::{Attestation, EvidenceKind, Strength};
+use crate::safe::SafeOwner;
 
 pub async fn connect(database_url: &str) -> Result<SqlitePool> {
     let opts = SqliteConnectOptions::from_str(database_url)
@@ -132,6 +133,76 @@ impl Repo {
             .await
             .context("known_addresses query failed")?;
         Ok(rows.into_iter().map(|r| r.get::<String, _>(0)).collect())
+    }
+
+    /// Replace every attestation row of the given `kind` whose `address`
+    /// is in the input set, with the supplied `new_attestations`.
+    /// Used by `link_addresses` to refresh derived evidence (one call
+    /// per derived kind) without disturbing rows of other kinds — most
+    /// importantly, future strong evidence (`did_controller`) or any
+    /// attestations injected by callers outside the link pipeline.
+    ///
+    /// All entries in `new_attestations` MUST have `kind == kind`; the
+    /// function panics on mismatch since that would silently violate
+    /// the scoping contract.
+    pub async fn replace_attestations_for_kind(
+        &self,
+        addresses: &[String],
+        kind: EvidenceKind,
+        new_attestations: &[Attestation],
+    ) -> Result<usize> {
+        for a in new_attestations {
+            assert!(
+                a.kind == kind,
+                "replace_attestations_for_kind: attestation kind {:?} does not match scope {:?}",
+                a.kind,
+                kind
+            );
+        }
+
+        let mut tx = self.pool.begin().await?;
+
+        if !addresses.is_empty() {
+            let placeholders = (1..=addresses.len())
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let kind_param_idx = addresses.len() + 1;
+            let sql = format!(
+                "DELETE FROM evidence
+                 WHERE address IN ({placeholders}) AND kind = ?{kind_param_idx}"
+            );
+            let mut q = sqlx::query(&sql);
+            for a in addresses {
+                q = q.bind(a.to_lowercase());
+            }
+            q = q.bind(kind.as_str());
+            q.execute(&mut *tx)
+                .await
+                .context("replace_attestations_for_kind: delete failed")?;
+        }
+
+        let mut inserted = 0usize;
+        for a in new_attestations {
+            let res = sqlx::query(
+                "INSERT INTO evidence
+                    (address, kind, key, strength, source, observed_block, payload_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )
+            .bind(a.address.to_lowercase())
+            .bind(a.kind.as_str())
+            .bind(a.key.to_lowercase())
+            .bind(a.strength.as_int())
+            .bind(&a.source)
+            .bind(a.observed_block)
+            .bind(a.payload_json.as_deref())
+            .execute(&mut *tx)
+            .await
+            .context("replace_attestations_for_kind: insert failed")?;
+            inserted += res.rows_affected() as usize;
+        }
+        tx.commit().await?;
+        Ok(inserted)
     }
 
     pub async fn insert_attestations(&self, atts: &[Attestation]) -> Result<usize> {
@@ -277,6 +348,59 @@ impl Repo {
                 twitter: r.get("twitter"),
                 github: r.get("github"),
                 telegram: r.get("telegram"),
+            })
+            .collect())
+    }
+
+    pub async fn upsert_safe_owner(&self, owner: &SafeOwner) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO safe_owners
+                (safe_address, owner_address, owner_is_safe, threshold, observed_block, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(safe_address, owner_address) DO UPDATE SET
+                owner_is_safe  = excluded.owner_is_safe,
+                threshold      = excluded.threshold,
+                observed_block = excluded.observed_block,
+                source         = excluded.source",
+        )
+        .bind(owner.safe_address.to_lowercase())
+        .bind(owner.owner_address.to_lowercase())
+        .bind(if owner.owner_is_safe { 1i64 } else { 0i64 })
+        .bind(owner.threshold)
+        .bind(owner.observed_block)
+        .bind(&owner.source)
+        .execute(&self.pool)
+        .await
+        .context("upsert_safe_owner failed")?;
+        Ok(())
+    }
+
+    /// Return every recorded owner of `safe_address`, including those
+    /// flagged as Safes themselves. The extractor is responsible for
+    /// dropping non-EOA owners before emitting evidence.
+    pub async fn safe_owners_of(&self, safe_address: &str) -> Result<Vec<SafeOwner>> {
+        let rows = sqlx::query(
+            "SELECT safe_address, owner_address, owner_is_safe, threshold, observed_block, source
+             FROM safe_owners
+             WHERE safe_address = ?1",
+        )
+        .bind(safe_address.to_lowercase())
+        .fetch_all(&self.pool)
+        .await
+        .context("safe_owners_of query failed")?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let is_safe_int: i64 = r.get("owner_is_safe");
+                SafeOwner {
+                    safe_address: r.get("safe_address"),
+                    owner_address: r.get("owner_address"),
+                    owner_is_safe: is_safe_int != 0,
+                    threshold: r.get("threshold"),
+                    observed_block: r.get("observed_block"),
+                    source: r.get("source"),
+                }
             })
             .collect())
     }

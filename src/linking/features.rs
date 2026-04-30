@@ -4,7 +4,9 @@ use petgraph::unionfind::UnionFind as PetUnionFind;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
-use crate::evidence::{extract_ens_handle, extract_funded_by, Attestation, EvidenceKind, Strength};
+use crate::evidence::{
+    extract_ens_handle, extract_funded_by, extract_safe_owner, Attestation, EvidenceKind, Strength,
+};
 use crate::storage::Repo;
 
 /// Maximum number of addresses that may share a single `(kind, key)`
@@ -140,11 +142,33 @@ pub async fn link_addresses(
     min_evidence: usize,
 ) -> Result<LinkingOutput> {
     let blacklist = cex_blacklist();
-    let normalized: Vec<String> = addresses.iter().map(|a| a.to_lowercase()).collect();
 
-    let mut attestations = extract_funded_by(repo, &normalized, &blacklist).await?;
-    attestations.extend(extract_ens_handle(repo, &normalized).await?);
-    repo.insert_attestations(&attestations).await?;
+    // Normalize + dedup the input set. Duplicates would otherwise cause
+    // each extractor to emit the same attestation row twice, blowing up
+    // the evidence UNIQUE constraint at insert time. Sorting also makes
+    // node-index assignment in cluster_from_evidence deterministic
+    // regardless of the caller's input ordering.
+    let mut normalized: Vec<String> = addresses.iter().map(|a| a.to_lowercase()).collect();
+    normalized.sort();
+    normalized.dedup();
+
+    let funded = extract_funded_by(repo, &normalized, &blacklist).await?;
+    let ens = extract_ens_handle(repo, &normalized).await?;
+    let safe = extract_safe_owner(repo, &normalized).await?;
+
+    // Replace, not append, but ONLY for the kinds this pipeline owns.
+    // Each kind is derived from a specific cache (transfers /
+    // ens_records / safe_owners) and a re-extract should reflect the
+    // current state of that cache. Other kinds in the evidence table
+    // — most importantly future strong DID-controller attestations,
+    // or anything inserted by callers outside link_addresses — must
+    // survive untouched.
+    repo.replace_attestations_for_kind(&normalized, EvidenceKind::FundedBy, &funded)
+        .await?;
+    repo.replace_attestations_for_kind(&normalized, EvidenceKind::EnsHandle, &ens)
+        .await?;
+    repo.replace_attestations_for_kind(&normalized, EvidenceKind::SafeOwner, &safe)
+        .await?;
 
     cluster_from_evidence(repo, &normalized, min_evidence).await
 }

@@ -86,3 +86,38 @@ fn non_empty(s: &String) -> Option<&str> {
 fn normalize_handle(s: &str) -> String {
     s.trim().trim_start_matches('@').to_lowercase()
 }
+
+/// Build `safe_owner` attestations from the cached `safe_owners` table.
+///
+/// For every input address that is a known Safe, each EOA owner becomes
+/// one MEDIUM-strength attestation `(safe_address, safe_owner, owner)`.
+/// Owners flagged as Safes themselves (`owner_is_safe = true`) are
+/// dropped: shared Safe-of-safe ownership tells us nothing about
+/// human-level control on its own. Per the project taxonomy, only EOA
+/// owners qualify.
+pub async fn extract_safe_owner(repo: &Repo, addresses: &[String]) -> Result<Vec<Attestation>> {
+    let mut out = Vec::new();
+    for addr in addresses {
+        let normalized = addr.to_lowercase();
+        for owner in repo.safe_owners_of(&normalized).await? {
+            if owner.owner_is_safe {
+                continue;
+            }
+            let payload = serde_json::json!({
+                "threshold": owner.threshold,
+                "owner_source": owner.source,
+            })
+            .to_string();
+            out.push(Attestation {
+                address: normalized.clone(),
+                kind: EvidenceKind::SafeOwner,
+                key: owner.owner_address.to_lowercase(),
+                strength: Strength::Medium,
+                source: format!("safe_owners:{}", owner.source),
+                observed_block: owner.observed_block.unwrap_or(0),
+                payload_json: Some(payload),
+            });
+        }
+    }
+    Ok(out)
+}

@@ -85,23 +85,31 @@ and dropped from edge generation; their fan-out is recorded in
 
 Evidence kinds shipping today:
 
-| Kind            | Strength | Source                              | Status        |
-|-----------------|----------|-------------------------------------|---------------|
-| `funded_by`     | medium   | `alchemy_getAssetTransfers` cache   | M1, automated |
-| `ens_handle`    | medium   | `ens_records` table (manual entry)  | M2, manual    |
-| `safe_owner`    | medium   | Safe Tx Service                     | M2, planned   |
-| `did_controller`| strong   | `did:ethr` / `did:pkh` documents    | M3, planned   |
+| Kind            | Strength | Source                                | Status        |
+|-----------------|----------|---------------------------------------|---------------|
+| `funded_by`     | medium   | `alchemy_getAssetTransfers` cache     | M1, automated |
+| `ens_handle`    | medium   | `ens_records` table (manual entry)    | M2, manual    |
+| `safe_owner`    | medium   | `safe_owners` table (EOA owners only) | M2, manual    |
+| `did_controller`| strong   | `did:ethr` / `did:pkh` documents      | M3, planned   |
 
 `ens_handle` keys take the form `"<service>:<handle>"` with the handle
 lowercased and the leading `@` stripped — so `@joseph` and `Joseph`
 resolve to the same key and merge accordingly.
 
-Until the automated ENS resolver lands (PR 2.5), populate `ens_records`
-manually:
+`safe_owner` only emits attestations for **EOA** owners. Owners that are
+themselves Safes are recorded for audit (`owner_is_safe = 1`) but
+excluded from edge generation: shared Safe-of-safe ownership tells us
+nothing about human-level control on its own.
+
+Until the automated resolvers land (PR 2.5 for ENS, PR 3.5 for Safe Tx
+Service), populate the caches manually:
 
 ```bash
 cargo run -- add-ens-record \
   --address 0xa1a1... --name alice.eth --twitter @joseph --github joseph-w
+
+cargo run -- add-safe-owner \
+  --safe 0xsafe... --owner 0xeoa... --threshold 2
 ```
 
 ## Roadmap
@@ -109,10 +117,12 @@ cargo run -- add-ens-record \
 - **M1 — funding-source linking** *(done)*: shared non-CEX funder evidence,
   pipeline split into `extract → attest → build`, full audit trail in
   `evidence` / `entity_clusters` / `clustering_runs`.
-- **M2 — ENS and Safe linking** *(in progress)*: ENS text-record co-handle
-  evidence shipping; Safe shared-owner (EOA only) up next.
-- **M2.5 — automated ENS resolver**: replace manual `add-ens-record` with
-  a subgraph or contract-call ingestor.
+- **M2 — ENS and Safe linking** *(done)*: ENS text-record co-handle and
+  Safe shared-EOA-owner evidence shipping; both populated via manual CLI
+  for now.
+- **M2.5 — automated resolvers**: replace `add-ens-record` with a
+  subgraph or contract-call ingestor; replace `add-safe-owner` with a
+  Safe Transaction Service ingestor.
 - **M3 — DID and metrics**: ingest `did:ethr` / `did:pkh` documents via
   `ssi`, link by proven controller key (strong evidence), surface
   decentralization metrics in a small report (HTML or notebook).
@@ -125,7 +135,9 @@ src/
   lib.rs         re-exports
   config.rs      env loading (ALCHEMY_API_KEY, DATABASE_URL)
   alchemy/       JSON-RPC wrapper + alchemy_getAssetTransfers
-  ens/           ENS subgraph queries (stub)
+  ens/           ENS records (manual entry — automated resolver in PR 2.5)
+  safe/          Safe owner records (manual entry — automated resolver in PR 3.5)
+  evidence/      Strength + EvidenceKind types, per-kind extractors
   storage/       SQLite schema + sqlx repo
   linking/       feature extraction + union-find
   metrics/       Nakamoto coefficient, Gini
