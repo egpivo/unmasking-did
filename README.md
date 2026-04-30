@@ -58,7 +58,13 @@ cargo run -- ingest --address 0xVitalikButerin...
 cargo run -- ingest --address 0xSomeOtherAddr...
 cargo run -- link --min-evidence 1
 cargo run -- metrics --threshold 0.5
+cargo run -- report > finding.md          # blog-ready Markdown
+cargo run -- report --format json         # same data, structured
 ```
+
+`metrics` and `report` both read the most recent persisted clustering
+run from `entity_clusters` — they do **not** re-cluster. Re-run `link`
+to refresh, then `report` again for new numbers.
 
 `ingest` does three things in one shot, all best-effort:
 
@@ -138,6 +144,12 @@ cargo run -- add-safe-owner \
   ENS records (REST shim, configurable) and Safe ownership (Safe Tx
   Service); each Safe owner is probed with `eth_getCode` so contract
   owners are flagged as non-EOA and excluded from clustering.
+- **Report polish** *(done)*: `cargo run -- report` renders the latest
+  persisted clustering run as Markdown (or JSON via `--format json`),
+  with a summary, top clusters with evidence trail, suspected service
+  keys, and a reproducibility footer pointing at `clustering_runs` /
+  `entity_clusters` / `evidence`. `metrics` now also reads from the
+  persisted run — neither command re-clusters.
 - **M3 — DID and metrics**: ingest `did:ethr` / `did:pkh` documents via
   `ssi`, link by proven controller key (strong evidence), surface
   decentralization metrics in a small report (HTML or notebook).
@@ -154,6 +166,9 @@ src/
   safe/          SafeOwner type
   evidence/      Strength + EvidenceKind types, per-kind extractors
   resolvers/     HTTP wrappers around ENS REST shim + Safe Tx Service
+  linking/       petgraph clustering + invariants
+  metrics/       Nakamoto coefficient, Gini
+  report/        Markdown rendering of a persisted run
   storage/       SQLite schema + sqlx repo
   linking/       feature extraction + union-find
   metrics/       Nakamoto coefficient, Gini

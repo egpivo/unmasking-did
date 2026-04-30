@@ -3,10 +3,22 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use std::str::FromStr;
 
+use std::collections::HashMap;
+
 use crate::alchemy::Transfer;
 use crate::ens::EnsRecord;
 use crate::evidence::{Attestation, EvidenceKind, Strength};
+use crate::linking::{ClusterReport, SkippedKey};
 use crate::safe::SafeOwner;
+
+/// Header of a single `clustering_runs` row, used by `report` and
+/// `metrics` to show which run their numbers came from.
+#[derive(Debug, Clone)]
+pub struct ClusteringRunSummary {
+    pub run_id: String,
+    pub params_json: String,
+    pub started_at: String,
+}
 
 pub async fn connect(database_url: &str) -> Result<SqlitePool> {
     let opts = SqliteConnectOptions::from_str(database_url)
@@ -405,6 +417,89 @@ impl Repo {
             .collect())
     }
 
+    /// Return the most recent `clustering_runs` row, if any. `report`
+    /// and `metrics` use this as the default run to render.
+    pub async fn latest_clustering_run(&self) -> Result<Option<ClusteringRunSummary>> {
+        let row = sqlx::query(
+            "SELECT run_id, params_json, started_at FROM clustering_runs
+             ORDER BY started_at DESC LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .context("latest_clustering_run query failed")?;
+        Ok(row.map(|r| ClusteringRunSummary {
+            run_id: r.get("run_id"),
+            params_json: r.get("params_json"),
+            started_at: r.get("started_at"),
+        }))
+    }
+
+    /// Read every cluster persisted by the given `run_id` and reassemble
+    /// each into a `ClusterReport` (the same shape `link_addresses`
+    /// returned). `evidence_json` is parsed back into
+    /// `shared_evidence_keys`; rows that fail to parse degrade to an
+    /// empty key list rather than failing the whole query.
+    pub async fn clusters_for_run(&self, run_id: &str) -> Result<Vec<ClusterReport>> {
+        let rows = sqlx::query(
+            "SELECT cluster_id, address, evidence_json
+             FROM entity_clusters
+             WHERE cluster_run_id = ?1
+             ORDER BY cluster_id, address",
+        )
+        .bind(run_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("clusters_for_run query failed")?;
+
+        let mut by_cluster: HashMap<String, ClusterReport> = HashMap::new();
+        for r in rows {
+            let cluster_id: String = r.get("cluster_id");
+            let address: String = r.get("address");
+            let evidence_json: Option<String> = r.get("evidence_json");
+
+            let entry = by_cluster
+                .entry(cluster_id.clone())
+                .or_insert_with(|| ClusterReport {
+                    cluster_id: cluster_id.clone(),
+                    addresses: Vec::new(),
+                    shared_evidence_keys: parse_shared_evidence_keys(evidence_json.as_deref()),
+                });
+            entry.addresses.push(address);
+        }
+
+        let mut out: Vec<ClusterReport> = by_cluster.into_values().collect();
+        for c in &mut out {
+            c.addresses.sort();
+        }
+        out.sort_by(|a, b| {
+            b.addresses
+                .len()
+                .cmp(&a.addresses.len())
+                .then_with(|| a.cluster_id.cmp(&b.cluster_id))
+        });
+        Ok(out)
+    }
+
+    pub async fn suspected_keys_for_run(&self, run_id: &str) -> Result<Vec<SkippedKey>> {
+        let rows = sqlx::query(
+            "SELECT kind, key, fan_out FROM suspected_service_keys
+             WHERE cluster_run_id = ?1
+             ORDER BY fan_out DESC, kind, key",
+        )
+        .bind(run_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("suspected_keys_for_run query failed")?;
+        Ok(rows
+            .into_iter()
+            .map(|r| SkippedKey {
+                kind: r.get("kind"),
+                key: r.get("key"),
+                fan_out: r.get::<i64, _>("fan_out") as usize,
+            })
+            .collect())
+    }
+
     pub async fn start_clustering_run(&self, run_id: &str, params_json: &str) -> Result<()> {
         sqlx::query(
             "INSERT INTO clustering_runs (run_id, params_json) VALUES (?1, ?2)",
@@ -445,4 +540,17 @@ impl Repo {
         tx.commit().await?;
         Ok(())
     }
+}
+
+fn parse_shared_evidence_keys(evidence_json: Option<&str>) -> Vec<String> {
+    let Some(s) = evidence_json else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(s) else {
+        return Vec::new();
+    };
+    value
+        .get("shared_evidence_keys")
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+        .unwrap_or_default()
 }
