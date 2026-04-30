@@ -27,6 +27,7 @@ target
 .env.local
 data/*
 !data/.gitkeep
+!data/findings/
 *.db
 *.sqlite
 *.sqlite-journal
