@@ -135,6 +135,62 @@ impl Repo {
         Ok(rows.into_iter().map(|r| r.get::<String, _>(0)).collect())
     }
 
+    /// Replace every attestation row whose `address` is in the given
+    /// set with the supplied `new_attestations`. Used by `link_addresses`
+    /// so that re-extraction reflects the *current* state of mutable
+    /// caches (`safe_owners`, `ens_records`): if a record was corrected
+    /// — e.g. an owner re-flagged as a Safe — the old derived
+    /// attestation must not survive into the next clustering run.
+    ///
+    /// `funded_by` attestations are also wiped here, but the next
+    /// extract regenerates them deterministically from the immutable
+    /// `transfers` cache, so the only observable effect for that kind
+    /// is idempotent re-creation.
+    pub async fn replace_attestations_for_addresses(
+        &self,
+        addresses: &[String],
+        new_attestations: &[Attestation],
+    ) -> Result<usize> {
+        let mut tx = self.pool.begin().await?;
+
+        if !addresses.is_empty() {
+            let placeholders = (1..=addresses.len())
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("DELETE FROM evidence WHERE address IN ({placeholders})");
+            let mut q = sqlx::query(&sql);
+            for a in addresses {
+                q = q.bind(a.to_lowercase());
+            }
+            q.execute(&mut *tx)
+                .await
+                .context("replace_attestations_for_addresses: delete failed")?;
+        }
+
+        let mut inserted = 0usize;
+        for a in new_attestations {
+            let res = sqlx::query(
+                "INSERT INTO evidence
+                    (address, kind, key, strength, source, observed_block, payload_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )
+            .bind(a.address.to_lowercase())
+            .bind(a.kind.as_str())
+            .bind(a.key.to_lowercase())
+            .bind(a.strength.as_int())
+            .bind(&a.source)
+            .bind(a.observed_block)
+            .bind(a.payload_json.as_deref())
+            .execute(&mut *tx)
+            .await
+            .context("replace_attestations_for_addresses: insert failed")?;
+            inserted += res.rows_affected() as usize;
+        }
+        tx.commit().await?;
+        Ok(inserted)
+    }
+
     pub async fn insert_attestations(&self, atts: &[Attestation]) -> Result<usize> {
         let mut tx = self.pool.begin().await?;
         let mut n = 0usize;

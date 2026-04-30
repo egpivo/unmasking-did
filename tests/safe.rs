@@ -76,6 +76,73 @@ async fn shared_safe_as_owner_does_not_merge() {
 }
 
 #[tokio::test]
+async fn correcting_owner_to_safe_invalidates_prior_evidence() {
+    // Regression for P1: stale evidence surviving corrections.
+    //
+    // Sequence:
+    //   1. Two Safes (A, B) both record the same address X as an
+    //      EOA owner. `link` writes safe_owner attestations for X.
+    //   2. We discover X is actually itself a Safe and re-record both
+    //      ownerships with `owner_is_safe = true`.
+    //   3. The next `link` must NOT keep merging A and B via X.
+    //
+    // Before the fix, step 1's attestations remained in the evidence
+    // table and the second `link` still merged the two Safes.
+    let repo = fresh_repo().await;
+    let safe_a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let safe_b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let suspect = "0xcccccccccccccccccccccccccccccccccccccccc";
+
+    repo.upsert_safe_owner(&edge(safe_a, suspect, false)).await.unwrap();
+    repo.upsert_safe_owner(&edge(safe_b, suspect, false)).await.unwrap();
+    repo.upsert_address(safe_a, None).await.unwrap();
+    repo.upsert_address(safe_b, None).await.unwrap();
+
+    let first = link_addresses(&repo, &[safe_a.into(), safe_b.into()], 1)
+        .await
+        .unwrap();
+    assert_eq!(first.clusters.len(), 1, "initial run should merge via shared EOA");
+
+    // Correction: the suspected EOA is actually a Safe.
+    repo.upsert_safe_owner(&edge(safe_a, suspect, true)).await.unwrap();
+    repo.upsert_safe_owner(&edge(safe_b, suspect, true)).await.unwrap();
+
+    let second = link_addresses(&repo, &[safe_a.into(), safe_b.into()], 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        second.clusters.len(),
+        2,
+        "after correcting owner to Safe-of-safe, prior evidence must not survive"
+    );
+}
+
+#[tokio::test]
+async fn add_safe_owner_does_not_make_owner_a_clustering_subject() {
+    // Regression for P2: the Safe owner is an evidence value, not a
+    // clustering subject. After upserting the relationship, the owner
+    // address must not appear in `addresses` — otherwise default
+    // `link` (which pulls the address set from `addresses`) would
+    // inflate n_addresses and create a phantom singleton cluster
+    // for every Safe owner ever recorded.
+    let repo = fresh_repo().await;
+    let safe = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let owner = "0xcccccccccccccccccccccccccccccccccccccccc";
+
+    // Mirror exactly what `cargo run -- add-safe-owner` does: write
+    // the relationship and upsert ONLY the Safe address as a subject.
+    repo.upsert_safe_owner(&edge(safe, owner, false)).await.unwrap();
+    repo.upsert_address(safe, None).await.unwrap();
+
+    let known = repo.known_addresses().await.unwrap();
+    assert!(known.contains(&safe.to_string()));
+    assert!(
+        !known.contains(&owner.to_string()),
+        "Safe owner must not enter `addresses` as a clustering subject"
+    );
+}
+
+#[tokio::test]
 async fn extract_safe_owner_filters_safe_owners() {
     let repo = fresh_repo().await;
     let safe = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

@@ -6,7 +6,6 @@
 
 use sqlx::Row;
 use unmasking_did::alchemy::Transfer;
-use unmasking_did::evidence::{Attestation, EvidenceKind, Strength};
 use unmasking_did::linking::link_and_persist;
 use unmasking_did::storage::{connect, run_migrations, Repo};
 
@@ -78,24 +77,19 @@ async fn fan_out_cap_persists_suspected_service_keys() {
     let repo = fresh_repo().await;
     let funder = "0xfeefeefeefeefeefeefeefeefeefeefeefeefee0";
 
+    // Seed via the real source-of-truth path (transfers), so
+    // `link_and_persist`'s extract step rebuilds the scenario
+    // deterministically. After the P1 fix, link_addresses replaces
+    // attestations for the input set on every run — direct evidence
+    // pre-seeding no longer survives that wipe.
     let mut addrs = Vec::with_capacity(51);
-    let mut atts = Vec::with_capacity(51);
     for i in 0..51u32 {
         let a = format!("0x{:040x}", i + 1);
-        atts.push(Attestation {
-            address: a.clone(),
-            kind: EvidenceKind::FundedBy,
-            key: funder.to_string(),
-            strength: Strength::Medium,
-            source: "test".to_string(),
-            observed_block: 1,
-            payload_json: None,
-        });
+        repo.insert_transfer(&t(funder, &a, (i as i64) + 1, &format!("0x{i:x}")))
+            .await
+            .unwrap();
         addrs.push(a);
     }
-    // Pre-seed evidence so link_and_persist's extract step does not
-    // overwrite our scenario (the addresses have no transfers cached).
-    repo.insert_attestations(&atts).await.unwrap();
 
     let (run_id, output) = link_and_persist(&repo, &addrs, 1).await.unwrap();
     assert_eq!(output.clusters.len(), 51);

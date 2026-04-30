@@ -237,8 +237,12 @@ async fn run_add_safe_owner(
         source: "manual".to_string(),
     };
     repo.upsert_safe_owner(&record).await?;
+    // Only the Safe is a clustering subject. The owner is an evidence
+    // value (queried via `safe_owners.owner_address` at extract time)
+    // — adding it to `addresses` would inflate `n_addresses`, create a
+    // singleton owner cluster on every link run, and conflate the
+    // "subject" and "evidence value" roles.
     repo.upsert_address(&safe_address, observed_block).await?;
-    repo.upsert_address(&owner_address, observed_block).await?;
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({

@@ -147,7 +147,15 @@ pub async fn link_addresses(
     let mut attestations = extract_funded_by(repo, &normalized, &blacklist).await?;
     attestations.extend(extract_ens_handle(repo, &normalized).await?);
     attestations.extend(extract_safe_owner(repo, &normalized).await?);
-    repo.insert_attestations(&attestations).await?;
+
+    // Replace, not append: extractors are pure functions of the cached
+    // source tables, and those tables can be corrected (a Safe owner
+    // re-flagged as a Safe-of-safe, an ENS handle changed). If we kept
+    // append-only behavior here, stale derived attestations would
+    // survive corrections and silently keep merging things they
+    // shouldn't.
+    repo.replace_attestations_for_addresses(&normalized, &attestations)
+        .await?;
 
     cluster_from_evidence(repo, &normalized, min_evidence).await
 }
