@@ -419,10 +419,20 @@ impl Repo {
 
     /// Return the most recent `clustering_runs` row, if any. `report`
     /// and `metrics` use this as the default run to render.
+    ///
+    /// Tie-breaker on `started_at`: SQLite's `datetime('now')` is
+    /// only second-resolution, so two `link_and_persist` calls inside
+    /// the same wall-clock second produce identical `started_at` values.
+    /// `run_id` is `format!("run-{micros}")` with microsecond
+    /// timestamps and a fixed-width digit count for the foreseeable
+    /// future, so descending lexicographic order on `run_id` is
+    /// equivalent to descending order by start time within a tied
+    /// second. Without this tie-breaker, the result would depend on
+    /// the engine's row-scan order — i.e. effectively non-deterministic.
     pub async fn latest_clustering_run(&self) -> Result<Option<ClusteringRunSummary>> {
         let row = sqlx::query(
             "SELECT run_id, params_json, started_at FROM clustering_runs
-             ORDER BY started_at DESC LIMIT 1",
+             ORDER BY started_at DESC, run_id DESC LIMIT 1",
         )
         .fetch_optional(&self.pool)
         .await

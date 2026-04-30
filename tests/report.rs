@@ -140,16 +140,6 @@ async fn latest_clustering_run_returns_the_most_recent() {
     repo.upsert_address(alice, None).await.unwrap();
 
     let (first, _) = link_and_persist(&repo, &[alice.into()], 1).await.unwrap();
-    // SQLite default datetime() resolution is seconds, so two link
-    // calls back-to-back can land on the same `started_at`. Force a
-    // monotonic ordering by stamping the second run a moment later.
-    let pool = repo.pool();
-    sqlx::query("UPDATE clustering_runs SET started_at = datetime('now', '-1 second') WHERE run_id = ?1")
-        .bind(&first)
-        .execute(pool)
-        .await
-        .unwrap();
-
     let (second, _) = link_and_persist(&repo, &[alice.into()], 1).await.unwrap();
     assert_ne!(first, second);
 
@@ -158,8 +148,38 @@ async fn latest_clustering_run_returns_the_most_recent() {
 
     // Sanity check: the older run's metadata is still queryable.
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM clustering_runs")
-        .fetch_one(pool)
+        .fetch_one(repo.pool())
         .await
         .unwrap();
     assert_eq!(count, 2);
+}
+
+#[tokio::test]
+async fn latest_clustering_run_breaks_started_at_ties_via_run_id() {
+    // Regression: SQLite's datetime('now') is second-resolution. Two
+    // link_and_persist calls within the same wall-clock second land
+    // on identical started_at values, so any ORDER BY started_at
+    // without a tie-breaker is non-deterministic — engine row-scan
+    // order decides which run "latest" returns. The fix is
+    // ORDER BY started_at DESC, run_id DESC.
+    let repo = fresh_repo().await;
+    let alice = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    repo.upsert_address(alice, None).await.unwrap();
+
+    let (first, _) = link_and_persist(&repo, &[alice.into()], 1).await.unwrap();
+    let (second, _) = link_and_persist(&repo, &[alice.into()], 1).await.unwrap();
+    assert_ne!(first, second);
+
+    // Force both rows to share an identical started_at so the test
+    // does not rely on luck of-the-clock to exercise the tie path.
+    sqlx::query("UPDATE clustering_runs SET started_at = '2026-04-30 18:23:00'")
+        .execute(repo.pool())
+        .await
+        .unwrap();
+
+    let latest = repo.latest_clustering_run().await.unwrap().unwrap();
+    assert_eq!(
+        latest.run_id, second,
+        "with started_at tied, the higher (later) run_id must win"
+    );
 }
