@@ -184,20 +184,19 @@ async fn store_safe_owners(
     // and excluded from `safe_owner` evidence per project policy.
     let mut eoa = 0usize;
     let mut contract = 0usize;
+    let mut unverified = 0usize;
     for owner in &mut owners {
-        let is_contract = match client.is_contract(&owner.owner_address).await {
-            Ok(v) => v,
-            Err(e) => {
-                warn!(
-                    owner = %owner.owner_address,
-                    error = %e,
-                    "is_contract probe failed; defaulting to EOA"
-                );
-                false
-            }
-        };
-        owner.owner_is_safe = is_contract;
-        if is_contract {
+        let probe = client.is_contract(&owner.owner_address).await;
+        if let Err(ref e) = probe {
+            warn!(
+                owner = %owner.owner_address,
+                error = %e,
+                "is_contract probe failed; treating owner as contract (conservative — re-run ingest with a working RPC to refine)"
+            );
+            unverified += 1;
+        }
+        owner.owner_is_safe = classify_owner_probe(probe);
+        if owner.owner_is_safe {
             contract += 1;
         } else {
             eoa += 1;
@@ -205,9 +204,24 @@ async fn store_safe_owners(
         repo.upsert_safe_owner(owner).await?;
     }
     Ok(format!(
-        "stored {total} owners ({eoa} EOA, {contract} contract)",
+        "stored {total} owners ({eoa} EOA, {contract} contract, {unverified} unverified→treated as contract)",
         total = eoa + contract,
     ))
+}
+
+/// Map an `is_contract` probe result to the `owner_is_safe` flag.
+///
+/// On probe failure, prefer the false-negative (under-cluster) over the
+/// false-positive (false merge): an unverified owner is marked as
+/// contract-like and dropped from `safe_owner` evidence until a future
+/// ingest with a working RPC can refine. The previous behavior — treat
+/// probe failure as EOA — would have let a flaky RPC silently merge
+/// Safes through what was actually another Safe.
+fn classify_owner_probe(probe: Result<bool>) -> bool {
+    match probe {
+        Ok(is_contract) => is_contract,
+        Err(_) => true,
+    }
 }
 
 async fn run_link(repo: &Repo, addresses: Vec<String>, min_evidence: usize) -> Result<()> {
@@ -352,5 +366,22 @@ mod tests {
     #[test]
     fn normalize_rejects_short_address() {
         assert!(normalize_address("0x1234").is_err());
+    }
+
+    #[test]
+    fn classify_owner_probe_passes_through_success() {
+        assert!(classify_owner_probe(Ok(true)));
+        assert!(!classify_owner_probe(Ok(false)));
+    }
+
+    #[test]
+    fn classify_owner_probe_treats_failure_as_contract() {
+        // Regression: a flaky RPC must not silently turn an unverified
+        // owner into evidence-eligible "EOA" and merge Safes through it.
+        let probe: Result<bool> = Err(anyhow!("simulated RPC failure"));
+        assert!(
+            classify_owner_probe(probe),
+            "probe failure must be classified as contract (conservative under-cluster)"
+        );
     }
 }
