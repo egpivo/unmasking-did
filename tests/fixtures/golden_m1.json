@@ -1,0 +1,27 @@
+[
+  {
+    "addresses": [
+      "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+    ],
+    "shared_funders": [
+      "0xf1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1",
+      "0xf2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2"
+    ]
+  },
+  {
+    "addresses": [
+      "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+      "0xd4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"
+    ],
+    "shared_funders": [
+      "0xf3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3"
+    ]
+  },
+  {
+    "addresses": [
+      "0xe5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"
+    ],
+    "shared_funders": []
+  }
+]
