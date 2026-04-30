@@ -9,10 +9,6 @@ use super::model::{Attestation, EvidenceKind, Strength};
 /// Each non-blacklisted funder of `addr` becomes one MEDIUM-strength
 /// attestation. Blacklist hits are dropped at extraction time so the
 /// `evidence` table never sees uninformative service-address edges.
-///
-/// The returned attestations are NOT yet persisted; the caller is
-/// responsible for writing them via [`Repo::insert_attestations`] so that
-/// extraction stays a pure function of the cache.
 pub async fn extract_funded_by(
     repo: &Repo,
     addresses: &[String],
@@ -37,4 +33,56 @@ pub async fn extract_funded_by(
         }
     }
     Ok(out)
+}
+
+/// Build `ens_handle` attestations from the cached `ens_records` table.
+/// Each non-empty off-chain handle (twitter / github / telegram) becomes
+/// one MEDIUM-strength attestation keyed as `"<service>:<handle>"`.
+///
+/// The ENS `name` itself is intentionally NOT emitted as evidence: ENS
+/// primary names are unique per address by construction, so two
+/// addresses can never share one — there is no link to discover.
+pub async fn extract_ens_handle(repo: &Repo, addresses: &[String]) -> Result<Vec<Attestation>> {
+    let normalized: Vec<String> = addresses.iter().map(|a| a.to_lowercase()).collect();
+    let records = repo.ens_records_for(&normalized).await?;
+
+    let mut out = Vec::new();
+    for record in records {
+        let address = record.address.to_lowercase();
+        let payload = serde_json::json!({
+            "ens_name": record.name,
+        })
+        .to_string();
+        for (service, value) in [
+            ("twitter", record.twitter.as_ref()),
+            ("github", record.github.as_ref()),
+            ("telegram", record.telegram.as_ref()),
+        ] {
+            if let Some(handle) = value.and_then(non_empty) {
+                out.push(Attestation {
+                    address: address.clone(),
+                    kind: EvidenceKind::EnsHandle,
+                    key: format!("{service}:{}", normalize_handle(handle)),
+                    strength: Strength::Medium,
+                    source: "ens_records".to_string(),
+                    observed_block: 0,
+                    payload_json: Some(payload.clone()),
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn non_empty(s: &String) -> Option<&str> {
+    let t = s.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t)
+    }
+}
+
+fn normalize_handle(s: &str) -> String {
+    s.trim().trim_start_matches('@').to_lowercase()
 }

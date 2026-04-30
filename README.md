@@ -56,6 +56,7 @@ cp .env.example .env
 
 cargo run -- ingest --address 0xVitalikButerin...
 cargo run -- ingest --address 0xSomeOtherAddr...
+cargo run -- add-ens-record --address 0xVitalik... --twitter @VitalikButerin --github vbuterin
 cargo run -- link --min-evidence 1
 cargo run -- metrics --threshold 0.5
 ```
@@ -65,34 +66,56 @@ cargo run -- metrics --threshold 0.5
 `UNIQUE (tx_hash, from_addr, to_addr, asset, value)` so repeated ingests
 do not duplicate transfers.
 
-## How linking works (M1)
+## Evidence model
 
-For each ingested address, all incoming transfers are scanned to derive a
-set of *funders*. Funders that appear in a small hardcoded blacklist of
-well-known CEX hot wallets (Binance, Coinbase, Kraken) are dropped, since
-funding from a CEX is uninformative — the same hot wallet pays out to
-millions of unrelated users.
+Every link the clustering can make is grounded in a typed attestation
+persisted to the `evidence` table:
 
-Two addresses are merged in a union-find when they share at least
-`--min-evidence` non-CEX funders. Each cluster in the output carries the
-list of funders that justified the merge.
+```
+(address, kind, key, strength, source, observed_block, payload)
+```
 
-This is **medium evidence** in the project taxonomy: it can support a
-link only in conjunction with other signals. The MVP applies it alone for
-demonstration; later milestones add ENS / Safe / DID-controller signals
-and weight evidence accordingly.
+Two addresses get merged when they share at least one `(kind, key)` AND
+either (a) one of those edges is `STRONG`, or (b) the per-pair edge count
+reaches `--min-evidence` AND at least one edge is `MEDIUM`. Weak edges
+never merge on their own — only ranking and tie-breaking. `(kind, key)`
+groups exceeding a fan-out cap (50) are flagged as suspected service keys
+and dropped from edge generation; their fan-out is recorded in
+`suspected_service_keys` for review.
+
+Evidence kinds shipping today:
+
+| Kind            | Strength | Source                              | Status        |
+|-----------------|----------|-------------------------------------|---------------|
+| `funded_by`     | medium   | `alchemy_getAssetTransfers` cache   | M1, automated |
+| `ens_handle`    | medium   | `ens_records` table (manual entry)  | M2, manual    |
+| `safe_owner`    | medium   | Safe Tx Service                     | M2, planned   |
+| `did_controller`| strong   | `did:ethr` / `did:pkh` documents    | M3, planned   |
+
+`ens_handle` keys take the form `"<service>:<handle>"` with the handle
+lowercased and the leading `@` stripped — so `@joseph` and `Joseph`
+resolve to the same key and merge accordingly.
+
+Until the automated ENS resolver lands (PR 2.5), populate `ens_records`
+manually:
+
+```bash
+cargo run -- add-ens-record \
+  --address 0xa1a1... --name alice.eth --twitter @joseph --github joseph-w
+```
 
 ## Roadmap
 
-- **M1 — funding-source linking** *(in progress)*: ingest transfers via
-  `alchemy_getAssetTransfers`, build clusters from shared non-CEX funders,
-  emit Nakamoto and Gini.
-- **M2 — ENS and Safe linking**: add ENS text-record co-handle evidence
-  and Safe shared-owner evidence (EOA owners only). Promote both as
-  medium evidence; require ≥2 distinct evidence types to merge.
+- **M1 — funding-source linking** *(done)*: shared non-CEX funder evidence,
+  pipeline split into `extract → attest → build`, full audit trail in
+  `evidence` / `entity_clusters` / `clustering_runs`.
+- **M2 — ENS and Safe linking** *(in progress)*: ENS text-record co-handle
+  evidence shipping; Safe shared-owner (EOA only) up next.
+- **M2.5 — automated ENS resolver**: replace manual `add-ens-record` with
+  a subgraph or contract-call ingestor.
 - **M3 — DID and metrics**: ingest `did:ethr` / `did:pkh` documents via
-  `ssi`, link by proven controller key, surface decentralization metrics
-  in a small report (HTML or notebook).
+  `ssi`, link by proven controller key (strong evidence), surface
+  decentralization metrics in a small report (HTML or notebook).
 
 ## Project layout
 

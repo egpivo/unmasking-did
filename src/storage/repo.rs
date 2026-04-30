@@ -4,6 +4,7 @@ use sqlx::{Row, SqlitePool};
 use std::str::FromStr;
 
 use crate::alchemy::Transfer;
+use crate::ens::EnsRecord;
 use crate::evidence::{Attestation, EvidenceKind, Strength};
 
 pub async fn connect(database_url: &str) -> Result<SqlitePool> {
@@ -224,6 +225,60 @@ impl Repo {
         .await
         .context("record_suspected_service_key failed")?;
         Ok(())
+    }
+
+    pub async fn upsert_ens_record(&self, record: &EnsRecord) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO ens_records (address, name, twitter, github, telegram)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(address) DO UPDATE SET
+                name     = excluded.name,
+                twitter  = excluded.twitter,
+                github   = excluded.github,
+                telegram = excluded.telegram",
+        )
+        .bind(record.address.to_lowercase())
+        .bind(record.name.as_deref())
+        .bind(record.twitter.as_deref())
+        .bind(record.github.as_deref())
+        .bind(record.telegram.as_deref())
+        .execute(&self.pool)
+        .await
+        .context("upsert_ens_record failed")?;
+        Ok(())
+    }
+
+    pub async fn ens_records_for(&self, addresses: &[String]) -> Result<Vec<EnsRecord>> {
+        if addresses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = (1..=addresses.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT address, name, twitter, github, telegram
+             FROM ens_records
+             WHERE address IN ({placeholders})"
+        );
+        let mut q = sqlx::query(&sql);
+        for a in addresses {
+            q = q.bind(a.to_lowercase());
+        }
+        let rows = q
+            .fetch_all(&self.pool)
+            .await
+            .context("ens_records_for query failed")?;
+        Ok(rows
+            .into_iter()
+            .map(|r| EnsRecord {
+                address: r.get("address"),
+                name: r.get("name"),
+                twitter: r.get("twitter"),
+                github: r.get("github"),
+                telegram: r.get("telegram"),
+            })
+            .collect())
     }
 
     pub async fn start_clustering_run(&self, run_id: &str, params_json: &str) -> Result<()> {

@@ -25,7 +25,7 @@ const BINANCE: &str = "0x28c6c06298d514db089934071355e5743bf21d60";
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct CanonicalCluster {
     addresses: Vec<String>,
-    shared_funders: Vec<String>,
+    shared_evidence_keys: Vec<String>,
 }
 
 fn canonicalize(reports: &[ClusterReport]) -> Vec<CanonicalCluster> {
@@ -34,11 +34,11 @@ fn canonicalize(reports: &[ClusterReport]) -> Vec<CanonicalCluster> {
         .map(|r| {
             let mut addresses = r.addresses.clone();
             addresses.sort();
-            let mut shared_funders = r.shared_funders.clone();
-            shared_funders.sort();
+            let mut shared_evidence_keys = r.shared_evidence_keys.clone();
+            shared_evidence_keys.sort();
             CanonicalCluster {
                 addresses,
-                shared_funders,
+                shared_evidence_keys,
             }
         })
         .collect();
