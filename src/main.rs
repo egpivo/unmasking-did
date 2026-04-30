@@ -7,8 +7,9 @@ use tracing::warn;
 use unmasking_did::alchemy::AlchemyClient;
 use unmasking_did::config::Config;
 use unmasking_did::ens::EnsRecord;
-use unmasking_did::linking::{cluster_by_funding, link_and_persist};
+use unmasking_did::linking::link_and_persist;
 use unmasking_did::metrics::{gini, nakamoto_coefficient};
+use unmasking_did::report::{render_markdown, ReportInputs};
 use unmasking_did::resolvers::{EnsResolver, SafeResolver};
 use unmasking_did::safe::SafeOwner;
 use unmasking_did::storage::{connect, run_migrations, Repo};
@@ -40,12 +41,21 @@ enum Command {
         #[arg(long, value_delimiter = ',')]
         addresses: Vec<String>,
     },
-    /// Compute decentralization metrics over the latest clustering.
+    /// Compute decentralization metrics over the latest persisted
+    /// clustering run. Run `link` first; this command does NOT
+    /// re-cluster — it reads `entity_clusters` for the most recent
+    /// `clustering_runs` row.
     Metrics {
         #[arg(long, default_value_t = 0.5)]
         threshold: f64,
-        #[arg(long, default_value_t = 1)]
-        min_evidence: usize,
+    },
+    /// Render a human-readable report (Markdown by default) over the
+    /// latest persisted clustering run. Suitable for blog / Medium.
+    Report {
+        #[arg(long, default_value = "markdown")]
+        format: String,
+        #[arg(long, default_value_t = 0.5)]
+        threshold: f64,
     },
     /// Manually attach off-chain handles (twitter / github / telegram)
     /// to an address. The automated resolver in `ingest` populates the
@@ -102,10 +112,8 @@ async fn main() -> Result<()> {
             min_evidence,
             addresses,
         } => run_link(&repo, addresses, min_evidence).await,
-        Command::Metrics {
-            threshold,
-            min_evidence,
-        } => run_metrics(&repo, threshold, min_evidence).await,
+        Command::Metrics { threshold } => run_metrics(&repo, threshold).await,
+        Command::Report { format, threshold } => run_report(&repo, format, threshold).await,
         Command::AddEnsRecord {
             address,
             name,
@@ -250,18 +258,18 @@ async fn run_link(repo: &Repo, addresses: Vec<String>, min_evidence: usize) -> R
     Ok(())
 }
 
-async fn run_metrics(repo: &Repo, threshold: f64, min_evidence: usize) -> Result<()> {
-    let addresses = repo.known_addresses().await?;
-    if addresses.is_empty() {
-        return Err(anyhow!("no addresses to score — run `ingest` first"));
-    }
-
-    let clusters = cluster_by_funding(repo, &addresses, min_evidence).await?;
+async fn run_metrics(repo: &Repo, threshold: f64) -> Result<()> {
+    let run = repo
+        .latest_clustering_run()
+        .await?
+        .ok_or_else(|| anyhow!("no clustering runs found — run `link` first"))?;
+    let clusters = repo.clusters_for_run(&run.run_id).await?;
     let sizes: Vec<u64> = clusters.iter().map(|c| c.addresses.len() as u64).collect();
-
-    let n_addresses = addresses.len();
+    let n_addresses: u64 = sizes.iter().sum();
     let n_entities = clusters.len();
+
     let report = serde_json::json!({
+        "run_id": run.run_id,
         "n_addresses": n_addresses,
         "n_entities": n_entities,
         "addresses_per_entity": (n_addresses as f64) / (n_entities.max(1) as f64),
@@ -270,6 +278,55 @@ async fn run_metrics(repo: &Repo, threshold: f64, min_evidence: usize) -> Result
         "gini": gini(&sizes),
     });
     println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
+async fn run_report(repo: &Repo, format: String, threshold: f64) -> Result<()> {
+    let run = repo
+        .latest_clustering_run()
+        .await?
+        .ok_or_else(|| anyhow!("no clustering runs found — run `link` first"))?;
+    let clusters = repo.clusters_for_run(&run.run_id).await?;
+    let skipped = repo.suspected_keys_for_run(&run.run_id).await?;
+    let sizes: Vec<u64> = clusters.iter().map(|c| c.addresses.len() as u64).collect();
+    let nakamoto = nakamoto_coefficient(&sizes, threshold);
+    let gini_value = gini(&sizes);
+
+    match format.as_str() {
+        "markdown" | "md" => {
+            let inputs = ReportInputs {
+                run: &run,
+                clusters: &clusters,
+                skipped: &skipped,
+                nakamoto,
+                gini: gini_value,
+                nakamoto_threshold: threshold,
+            };
+            print!("{}", render_markdown(&inputs));
+        }
+        "json" => {
+            let parsed_params: serde_json::Value =
+                serde_json::from_str(&run.params_json).unwrap_or(serde_json::json!(run.params_json));
+            let body = serde_json::json!({
+                "run_id": run.run_id,
+                "started_at": run.started_at,
+                "params": parsed_params,
+                "n_addresses": sizes.iter().sum::<u64>(),
+                "n_entities": clusters.len(),
+                "nakamoto_coefficient": nakamoto,
+                "nakamoto_threshold": threshold,
+                "gini": gini_value,
+                "clusters": clusters,
+                "skipped_service_keys": skipped,
+            });
+            println!("{}", serde_json::to_string_pretty(&body)?);
+        }
+        other => {
+            return Err(anyhow!(
+                "unknown --format {other:?}; expected `markdown` or `json`"
+            ));
+        }
+    }
     Ok(())
 }
 
