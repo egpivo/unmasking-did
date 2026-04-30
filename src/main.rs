@@ -5,7 +5,7 @@ use tracing_subscriber::EnvFilter;
 
 use unmasking_did::alchemy::AlchemyClient;
 use unmasking_did::config::Config;
-use unmasking_did::linking::cluster_by_funding;
+use unmasking_did::linking::{cluster_by_funding, link_and_persist};
 use unmasking_did::metrics::{gini, nakamoto_coefficient};
 use unmasking_did::storage::{connect, run_migrations, Repo};
 
@@ -106,8 +106,13 @@ async fn run_link(repo: &Repo, addresses: Vec<String>, min_evidence: usize) -> R
         ));
     }
 
-    let clusters = cluster_by_funding(repo, &addresses, min_evidence).await?;
-    println!("{}", serde_json::to_string_pretty(&clusters)?);
+    let (run_id, output) = link_and_persist(repo, &addresses, min_evidence).await?;
+    let report = serde_json::json!({
+        "run_id": run_id,
+        "clusters": output.clusters,
+        "skipped_service_keys": output.skipped_service_keys,
+    });
+    println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }
 
