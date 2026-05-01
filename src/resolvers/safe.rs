@@ -1,4 +1,7 @@
-use anyhow::{Context, Result};
+use std::str::FromStr;
+
+use alloy::primitives::Address;
+use anyhow::{anyhow, Context, Result};
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 
@@ -50,23 +53,37 @@ impl SafeResolver {
         safe_address: &str,
         observed_block: Option<i64>,
     ) -> Result<Option<Vec<SafeOwner>>> {
+        // The current Safe Tx Service deployment (now hosted at
+        // api.safe.global with chain-specific path prefixes) rejects
+        // lowercase addresses with HTTP 422 "Checksum address
+        // validation failed". We normalize lowercase everywhere
+        // internally for indexing, so we have to convert back to the
+        // EIP-55 checksum form at the network boundary.
+        let parsed = Address::from_str(safe_address)
+            .with_context(|| format!("invalid Safe address: {safe_address}"))?;
         let url = format!(
             "{}/api/v1/safes/{}/",
             self.base_url.trim_end_matches('/'),
-            safe_address.to_lowercase()
+            parsed
         );
         let resp = self
             .http
             .get(&url)
             .send()
             .await
-            .with_context(|| format!("safe tx service request failed: {url}"))?;
-        if resp.status() == StatusCode::NOT_FOUND {
+            .with_context(|| format!("safe tx service request failed for {safe_address}"))?;
+        let status = resp.status();
+        if status == StatusCode::NOT_FOUND {
             return Ok(None);
         }
-        let resp = resp
-            .error_for_status()
-            .with_context(|| format!("safe tx service HTTP error: {url}"))?;
+        if !status.is_success() {
+            // Surface the status code so failures (4xx / 5xx / unfollowed
+            // redirects) are diagnosable from logs without leaking the
+            // request URL.
+            return Err(anyhow!(
+                "safe tx service returned HTTP {status} for {safe_address}"
+            ));
+        }
         let body: SafeInfoResponse = resp
             .json()
             .await

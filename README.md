@@ -185,7 +185,7 @@ For Scroll:
 ```env
 ALCHEMY_BASE_URL=https://scroll-mainnet.g.alchemy.com/v2
 ALCHEMY_TRANSFER_CATEGORIES=external,erc20
-SAFE_TX_SERVICE_URL=https://transaction-scroll.safe.global
+SAFE_TX_SERVICE_URL=https://safe-transaction-scroll.safe.global
 ```
 Notes:
 
