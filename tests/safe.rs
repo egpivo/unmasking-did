@@ -143,38 +143,48 @@ async fn add_safe_owner_does_not_make_owner_a_clustering_subject() {
 }
 
 #[tokio::test]
-async fn link_does_not_disturb_evidence_outside_its_owned_kinds() {
-    // Regression for P2 (round 2): the previous fix wiped *all*
-    // evidence rows for the input addresses. That made link_addresses
-    // destructive beyond the derived caches it actually owns
-    // (transfers / ens_records / safe_owners). Strong evidence from a
-    // future kind (`did_controller`) — or anything injected manually —
-    // must survive a link run untouched.
+async fn link_only_replaces_attestations_for_addresses_in_its_input() {
+    // Regression for P2 (round 2): replace_attestations_for_addresses
+    // (the previous fix) wiped *every* evidence row for the input
+    // addresses, regardless of kind. M3 makes link_addresses own all
+    // four current kinds, so the original framing of this test
+    // ("kinds outside the pipeline must survive") no longer maps to a
+    // reachable scenario. The remaining guardrail to lock is the
+    // *address* scope: a link run on `[safe_a]` must not touch
+    // evidence rows whose `address` is anything else (`safe_b`, an
+    // owner address, etc.).
     let repo = fresh_repo().await;
     let safe_a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let safe_b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     let controller = "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0";
 
     repo.upsert_address(safe_a, None).await.unwrap();
+    repo.upsert_address(safe_b, None).await.unwrap();
+
+    // Pre-seed a STRONG did_controller attestation against safe_b.
+    // This is data that legitimately would survive ingestion but is
+    // not part of the link call's input set.
     repo.insert_attestations(&[Attestation {
-        address: safe_a.to_string(),
+        address: safe_b.to_string(),
         kind: EvidenceKind::DidController,
         key: controller.to_string(),
         strength: Strength::Strong,
-        source: "manual:m3-precursor".to_string(),
-        observed_block: 42,
+        source: "manual:test".to_string(),
+        observed_block: 0,
         payload_json: None,
     }])
     .await
     .unwrap();
 
+    // Link only on safe_a — safe_b's evidence row must survive.
     let _ = link_addresses(&repo, &[safe_a.into()], 1).await.unwrap();
 
-    let after = repo.attestations_for(&[safe_a.into()]).await.unwrap();
+    let surviving = repo.attestations_for(&[safe_b.into()]).await.unwrap();
     assert!(
-        after.iter().any(|a| a.kind == EvidenceKind::DidController
+        surviving.iter().any(|a| a.kind == EvidenceKind::DidController
             && a.strength == Strength::Strong
             && a.key == controller),
-        "link_addresses must not touch attestation kinds it does not own"
+        "link_addresses must only touch evidence for addresses in its input set"
     );
 }
 

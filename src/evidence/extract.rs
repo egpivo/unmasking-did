@@ -87,6 +87,48 @@ fn normalize_handle(s: &str) -> String {
     s.trim().trim_start_matches('@').to_lowercase()
 }
 
+/// Build `did_controller` attestations from the cached `did_documents`
+/// table. Each non-trivial document (where the recorded `controller`
+/// differs from the `subject_address`) becomes one **STRONG**
+/// attestation `(subject, did_controller, controller)`.
+///
+/// Self-controlled DIDs — `did:pkh` by construction, and any
+/// freshly-minted `did:ethr` whose owner has never been changed — are
+/// dropped at extraction time. Including them would emit a
+/// self-referential edge that contributes no clustering signal: every
+/// address trivially controls its own implicit DID.
+pub async fn extract_did_controller(
+    repo: &Repo,
+    addresses: &[String],
+) -> Result<Vec<Attestation>> {
+    let normalized: Vec<String> = addresses.iter().map(|a| a.to_lowercase()).collect();
+    let docs = repo.did_documents_for(&normalized).await?;
+
+    let mut out = Vec::new();
+    for doc in docs {
+        let subject = doc.subject_address.to_lowercase();
+        let controller = doc.controller.to_lowercase();
+        if subject == controller {
+            continue;
+        }
+        let payload = serde_json::json!({
+            "did": doc.did,
+            "method": doc.method,
+        })
+        .to_string();
+        out.push(Attestation {
+            address: subject,
+            kind: EvidenceKind::DidController,
+            key: controller,
+            strength: Strength::Strong,
+            source: format!("did_documents:{}:{}", doc.method, doc.source),
+            observed_block: doc.observed_block.unwrap_or(0),
+            payload_json: Some(payload),
+        });
+    }
+    Ok(out)
+}
+
 /// Build `safe_owner` attestations from the cached `safe_owners` table.
 ///
 /// For every input address that is a known Safe, each EOA owner becomes

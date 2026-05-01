@@ -5,7 +5,8 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
 use crate::evidence::{
-    extract_ens_handle, extract_funded_by, extract_safe_owner, Attestation, EvidenceKind, Strength,
+    extract_did_controller, extract_ens_handle, extract_funded_by, extract_safe_owner,
+    Attestation, EvidenceKind, Strength,
 };
 use crate::storage::Repo;
 
@@ -155,19 +156,21 @@ pub async fn link_addresses(
     let funded = extract_funded_by(repo, &normalized, &blacklist).await?;
     let ens = extract_ens_handle(repo, &normalized).await?;
     let safe = extract_safe_owner(repo, &normalized).await?;
+    let did = extract_did_controller(repo, &normalized).await?;
 
     // Replace, not append, but ONLY for the kinds this pipeline owns.
     // Each kind is derived from a specific cache (transfers /
-    // ens_records / safe_owners) and a re-extract should reflect the
-    // current state of that cache. Other kinds in the evidence table
-    // — most importantly future strong DID-controller attestations,
-    // or anything inserted by callers outside link_addresses — must
-    // survive untouched.
+    // ens_records / safe_owners / did_documents) and a re-extract
+    // should reflect the current state of that cache. Other kinds in
+    // the evidence table — anything inserted by callers outside
+    // link_addresses — must survive untouched.
     repo.replace_attestations_for_kind(&normalized, EvidenceKind::FundedBy, &funded)
         .await?;
     repo.replace_attestations_for_kind(&normalized, EvidenceKind::EnsHandle, &ens)
         .await?;
     repo.replace_attestations_for_kind(&normalized, EvidenceKind::SafeOwner, &safe)
+        .await?;
+    repo.replace_attestations_for_kind(&normalized, EvidenceKind::DidController, &did)
         .await?;
 
     cluster_from_evidence(repo, &normalized, min_evidence).await

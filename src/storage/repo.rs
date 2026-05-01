@@ -6,6 +6,7 @@ use std::str::FromStr;
 use std::collections::HashMap;
 
 use crate::alchemy::Transfer;
+use crate::did::DidDocument;
 use crate::ens::EnsRecord;
 use crate::evidence::{Attestation, EvidenceKind, Strength};
 use crate::linking::{ClusterReport, SkippedKey};
@@ -506,6 +507,71 @@ impl Repo {
                 kind: r.get("kind"),
                 key: r.get("key"),
                 fan_out: r.get::<i64, _>("fan_out") as usize,
+            })
+            .collect())
+    }
+
+    pub async fn upsert_did_document(&self, doc: &DidDocument) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO did_documents
+                (did, subject_address, controller, method, document_json, observed_block, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(did) DO UPDATE SET
+                subject_address = excluded.subject_address,
+                controller      = excluded.controller,
+                method          = excluded.method,
+                document_json   = excluded.document_json,
+                observed_block  = excluded.observed_block,
+                source          = excluded.source",
+        )
+        .bind(&doc.did)
+        .bind(doc.subject_address.to_lowercase())
+        .bind(doc.controller.to_lowercase())
+        .bind(&doc.method)
+        .bind(doc.document_json.as_deref())
+        .bind(doc.observed_block)
+        .bind(&doc.source)
+        .execute(&self.pool)
+        .await
+        .context("upsert_did_document failed")?;
+        Ok(())
+    }
+
+    /// Return every DID document whose `subject_address` is in the
+    /// given set. The extractor will then decide whether each row is
+    /// evidence-eligible (controller != subject) or trivial.
+    pub async fn did_documents_for(&self, addresses: &[String]) -> Result<Vec<DidDocument>> {
+        if addresses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = (1..=addresses.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT did, subject_address, controller, method,
+                    document_json, observed_block, source
+             FROM did_documents
+             WHERE subject_address IN ({placeholders})"
+        );
+        let mut q = sqlx::query(&sql);
+        for a in addresses {
+            q = q.bind(a.to_lowercase());
+        }
+        let rows = q
+            .fetch_all(&self.pool)
+            .await
+            .context("did_documents_for query failed")?;
+        Ok(rows
+            .into_iter()
+            .map(|r| DidDocument {
+                did: r.get("did"),
+                subject_address: r.get("subject_address"),
+                controller: r.get("controller"),
+                method: r.get("method"),
+                document_json: r.get("document_json"),
+                observed_block: r.get("observed_block"),
+                source: r.get("source"),
             })
             .collect())
     }
