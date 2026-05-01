@@ -10,7 +10,7 @@ use unmasking_did::did::DidDocument;
 use unmasking_did::ens::EnsRecord;
 use unmasking_did::linking::link_and_persist;
 use unmasking_did::metrics::{gini, nakamoto_coefficient};
-use unmasking_did::report::{render_markdown, ReportInputs};
+use unmasking_did::report::{render_dot, render_markdown, DotInputs, ReportInputs};
 use unmasking_did::resolvers::{EnsResolver, SafeResolver};
 use unmasking_did::safe::SafeOwner;
 use unmasking_did::storage::{connect, run_migrations, Repo};
@@ -299,13 +299,18 @@ async fn run_metrics(repo: &Repo, threshold: f64) -> Result<()> {
     let clusters = repo.clusters_for_run(&run.run_id).await?;
     let sizes: Vec<u64> = clusters.iter().map(|c| c.addresses.len() as u64).collect();
     let n_addresses: u64 = sizes.iter().sum();
-    let n_entities = clusters.len();
+    let n_clusters = clusters.len();
 
+    // `n_clusters` (renamed from `n_entities`) avoids the overclaim
+    // that a connected component in the evidence graph IS a real-world
+    // entity. The number is "how many clusters the evidence model
+    // produced," not "how many people / orgs are behind these
+    // identifiers."
     let report = serde_json::json!({
         "run_id": run.run_id,
         "n_addresses": n_addresses,
-        "n_entities": n_entities,
-        "addresses_per_entity": (n_addresses as f64) / (n_entities.max(1) as f64),
+        "n_clusters": n_clusters,
+        "addresses_per_cluster": (n_addresses as f64) / (n_clusters.max(1) as f64),
         "nakamoto_coefficient": nakamoto_coefficient(&sizes, threshold),
         "nakamoto_threshold": threshold,
         "gini": gini(&sizes),
@@ -325,12 +330,28 @@ async fn run_report(repo: &Repo, format: String, threshold: f64) -> Result<()> {
     let nakamoto = nakamoto_coefficient(&sizes, threshold);
     let gini_value = gini(&sizes);
 
+    // Re-read evidence for every address in every cluster. The
+    // markdown renderer uses this to label clusters by their dominant
+    // evidence kind (controller-level / shared-owner / …). The DOT
+    // renderer uses the same data to draw labelled edges. Important
+    // caveat: this reflects the *current* state of `evidence`, not a
+    // snapshot at `run.run_id` — if the user has touched the cache
+    // since `link` ran, the rendered visualization may diverge from
+    // the persisted cluster shape. Persisting per-pair edges per run
+    // would fix that and is on the M3.5+ backlog.
+    let cluster_addresses: Vec<String> = clusters
+        .iter()
+        .flat_map(|c| c.addresses.iter().cloned())
+        .collect();
+    let attestations = repo.attestations_for(&cluster_addresses).await?;
+
     match format.as_str() {
         "markdown" | "md" => {
             let inputs = ReportInputs {
                 run: &run,
                 clusters: &clusters,
                 skipped: &skipped,
+                attestations: &attestations,
                 nakamoto,
                 gini: gini_value,
                 nakamoto_threshold: threshold,
@@ -345,7 +366,7 @@ async fn run_report(repo: &Repo, format: String, threshold: f64) -> Result<()> {
                 "started_at": run.started_at,
                 "params": parsed_params,
                 "n_addresses": sizes.iter().sum::<u64>(),
-                "n_entities": clusters.len(),
+                "n_clusters": clusters.len(),
                 "nakamoto_coefficient": nakamoto,
                 "nakamoto_threshold": threshold,
                 "gini": gini_value,
@@ -354,9 +375,18 @@ async fn run_report(repo: &Repo, format: String, threshold: f64) -> Result<()> {
             });
             println!("{}", serde_json::to_string_pretty(&body)?);
         }
+        "dot" => {
+            let inputs = DotInputs {
+                run: &run,
+                clusters: &clusters,
+                skipped: &skipped,
+                attestations: &attestations,
+            };
+            print!("{}", render_dot(&inputs));
+        }
         other => {
             return Err(anyhow!(
-                "unknown --format {other:?}; expected `markdown` or `json`"
+                "unknown --format {other:?}; expected `markdown`, `json`, or `dot`"
             ));
         }
     }
