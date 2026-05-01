@@ -113,34 +113,45 @@ pub fn passing_edges<'a>(
     // `per_pair` table that `linking::features::build_clusters`
     // computes during the link run, which is the input to the merge
     // invariant.
+    //
+    // Per-pair strength matches the linker EXACTLY: for each pair
+    // `(addr_i, addr_j)` in a `(kind, key)` group, the edge strength
+    // is `max(strength_at_addr_i, strength_at_addr_j)`. We can't take
+    // a single strength for the whole group — different attestations
+    // in the same group can have different strengths (today only via
+    // direct `insert_attestations`; tomorrow once weighted variants
+    // ship), and in that case using `atts[0].strength` would make the
+    // reconstruction depend on row order — pairs that merge in
+    // linking would silently disappear from DOT/Markdown.
     type PairKey<'a> = (&'a str, &'a str);
     let mut pair_totals: HashMap<PairKey<'a>, (usize, Strength)> = HashMap::new();
     for ((_kind, _key), atts) in &by_kind_key {
         if atts.len() < 2 || atts.len() > fan_out_cap {
             continue;
         }
-        let mut addrs: Vec<&'a str> = atts.iter().map(|a| a.address.as_str()).collect();
+        let strength_by_addr = max_strength_by_address(atts);
+        let mut addrs: Vec<&'a str> = strength_by_addr.keys().copied().collect();
         addrs.sort();
-        addrs.dedup();
         if addrs.len() < 2 {
             continue;
         }
-        let strength = atts[0].strength;
         for i in 0..addrs.len() {
             for j in (i + 1)..addrs.len() {
                 let (lo, hi) = canonical_pair(addrs[i], addrs[j]);
+                let pair_strength = strength_for(&strength_by_addr, addrs[i])
+                    .max(strength_for(&strength_by_addr, addrs[j]));
                 let entry = pair_totals.entry((lo, hi)).or_insert((0, Strength::Weak));
                 entry.0 += 1;
-                if strength > entry.1 {
-                    entry.1 = strength;
+                if pair_strength > entry.1 {
+                    entry.1 = pair_strength;
                 }
             }
         }
     }
 
     // Pass 2 — emit per-(pair, kind) aggregates, filtered by the
-    // merge invariant + same-cluster guard. BTreeMap gives us
-    // deterministic iteration on `(src, dst, kind)`.
+    // merge invariant + same-cluster guard. Same per-pair strength
+    // logic as Pass 1.
     struct Builder<'a> {
         keys: Vec<&'a str>,
         strength: Strength,
@@ -152,13 +163,12 @@ pub fn passing_edges<'a>(
         if atts.len() < 2 || atts.len() > fan_out_cap {
             continue;
         }
-        let mut addrs: Vec<&'a str> = atts.iter().map(|a| a.address.as_str()).collect();
+        let strength_by_addr = max_strength_by_address(&atts);
+        let mut addrs: Vec<&'a str> = strength_by_addr.keys().copied().collect();
         addrs.sort();
-        addrs.dedup();
         if addrs.len() < 2 {
             continue;
         }
-        let strength = atts[0].strength;
         for i in 0..addrs.len() {
             for j in (i + 1)..addrs.len() {
                 let (lo, hi) = canonical_pair(addrs[i], addrs[j]);
@@ -180,15 +190,18 @@ pub fn passing_edges<'a>(
                     continue;
                 }
 
+                let pair_strength = strength_for(&strength_by_addr, addrs[i])
+                    .max(strength_for(&strength_by_addr, addrs[j]));
+
                 let entry = by_pair_kind.entry((lo, hi, kind)).or_insert_with(|| Builder {
                     keys: Vec::new(),
-                    strength,
+                    strength: pair_strength,
                 });
                 if !entry.keys.contains(&key) {
                     entry.keys.push(key);
                 }
-                if strength > entry.strength {
-                    entry.strength = strength;
+                if pair_strength > entry.strength {
+                    entry.strength = pair_strength;
                 }
             }
         }
@@ -212,6 +225,29 @@ fn canonical_pair<'a>(a: &'a str, b: &'a str) -> (&'a str, &'a str) {
     } else {
         (b, a)
     }
+}
+
+/// For a single `(kind, key)` group, fold all of an address's
+/// attestations into one max strength value. Multiple attestations
+/// sharing the same `(address, kind, key)` differ only by `source`
+/// thanks to the evidence UNIQUE constraint, but they CAN carry
+/// different strengths once weighted variants ship — we want the
+/// strongest observation for that address in that group.
+fn max_strength_by_address<'a>(atts: &[&'a Attestation]) -> HashMap<&'a str, Strength> {
+    let mut by_addr: HashMap<&'a str, Strength> = HashMap::new();
+    for att in atts {
+        let entry = by_addr
+            .entry(att.address.as_str())
+            .or_insert(Strength::Weak);
+        if att.strength > *entry {
+            *entry = att.strength;
+        }
+    }
+    by_addr
+}
+
+fn strength_for(map: &HashMap<&str, Strength>, addr: &str) -> Strength {
+    map.get(addr).copied().unwrap_or(Strength::Weak)
 }
 
 #[cfg(test)]
@@ -324,6 +360,59 @@ mod tests {
                 .all(|e| e.kind != EvidenceKind::DidController),
             "DidController must not appear: no shared controller between members"
         );
+    }
+
+    #[test]
+    fn pair_strength_uses_per_endpoint_max_not_first_attestation() {
+        // Regression: before this fix, Pass 1 and Pass 2 both took
+        // `atts[0].strength` as the strength of every edge in the
+        // (kind, key) group. When attestations within the same group
+        // had mixed strengths (today via direct manual injection,
+        // tomorrow once a weighted `funded_by` variant ships), the
+        // reconstructed merge decision depended on row order — pairs
+        // that the linker would merge via the strong-alone bypass
+        // could disappear from DOT/Markdown depending on which
+        // attestation happened to be first in the cache scan.
+        //
+        // The linker's actual edge strength is
+        //   max(atts[i].strength, atts[j].strength)
+        // for each pair. The reconstruction must match.
+        let a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let key = "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0";
+
+        // Order chosen so that `atts[0]` is WEAK — the buggy code
+        // would conclude the edge is WEAK and skip it. With the fix
+        // the per-endpoint max(WEAK, STRONG) = STRONG and the pair
+        // merges via the strong-alone bypass even at min_evidence=2.
+        let attestations = vec![
+            att(b, EvidenceKind::DidController, key, Strength::Weak),
+            att(a, EvidenceKind::DidController, key, Strength::Strong),
+        ];
+        let clusters = vec![cluster(&[a, b])];
+
+        let edges = passing_edges(&attestations, &clusters, 2, 50);
+        assert_eq!(
+            edges.len(),
+            1,
+            "mixed-strength pair must produce one edge under strong-alone"
+        );
+        assert_eq!(edges[0].kind, EvidenceKind::DidController);
+        assert_eq!(
+            edges[0].strength,
+            Strength::Strong,
+            "edge strength must be max(endpoints), not atts[0]"
+        );
+
+        // Reverse the row order — must produce identical output.
+        let attestations_reversed: Vec<_> = attestations.iter().cloned().rev().collect();
+        let edges_reversed = passing_edges(&attestations_reversed, &clusters, 2, 50);
+        assert_eq!(
+            edges_reversed.len(),
+            edges.len(),
+            "row order must not affect merge reconstruction"
+        );
+        assert_eq!(edges_reversed[0].strength, edges[0].strength);
     }
 
     #[test]
