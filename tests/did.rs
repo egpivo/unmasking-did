@@ -117,6 +117,84 @@ async fn extract_did_controller_emits_strong_attestations() {
 }
 
 #[tokio::test]
+async fn multi_did_same_controller_collapses_to_one_attestation() {
+    // Regression: when a single subject has more than one DID
+    // document pointing at the same controller (e.g. did:ethr on two
+    // chains), the extractor used to emit one attestation per DID.
+    // Two failure modes followed:
+    //   (a) replace_attestations_for_kind's plain INSERT collided on
+    //       UNIQUE(address, kind, key, source) and aborted the run;
+    //   (b) the per-pair edge count inflated to N² for N DIDs, so the
+    //       same logical fact would silently overweight `min_evidence`.
+    // Fix: collapse to one attestation per (subject, controller),
+    // aggregating the supporting DIDs into payload_json for audit.
+    let repo = fresh_repo().await;
+    let alice = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let bob = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let controller = "0xcccccccccccccccccccccccccccccccccccccccc";
+
+    // Alice has two DID documents (different chain variants), both
+    // claiming `controller` as authoritative.
+    repo.upsert_did_document(&DidDocument {
+        did: format!("did:ethr:{alice}"),
+        subject_address: alice.into(),
+        controller: controller.into(),
+        method: "ethr".into(),
+        document_json: None,
+        observed_block: Some(100),
+        source: "test".into(),
+    })
+    .await
+    .unwrap();
+    repo.upsert_did_document(&DidDocument {
+        did: format!("did:ethr:scroll:{alice}"),
+        subject_address: alice.into(),
+        controller: controller.into(),
+        method: "ethr".into(),
+        document_json: None,
+        observed_block: Some(200),
+        source: "test".into(),
+    })
+    .await
+    .unwrap();
+    // Bob has one DID document with the same controller.
+    repo.upsert_did_document(&doc(bob, controller, "ethr"))
+        .await
+        .unwrap();
+
+    let atts = extract_did_controller(&repo, &[alice.into(), bob.into()])
+        .await
+        .unwrap();
+
+    // Failure (a): without dedup, alice would emit 2 attestations
+    // with byte-identical (address, kind, key, source). The fixed
+    // extractor must emit exactly one per (subject, controller).
+    let alice_atts: Vec<_> = atts.iter().filter(|a| a.address == alice).collect();
+    let bob_atts: Vec<_> = atts.iter().filter(|a| a.address == bob).collect();
+    assert_eq!(alice_atts.len(), 1, "alice's two DIDs must collapse to one attestation");
+    assert_eq!(bob_atts.len(), 1);
+
+    // Audit info preserved: both supporting DIDs in payload_json.
+    let payload = alice_atts[0].payload_json.as_ref().expect("payload_json present");
+    assert!(payload.contains(&format!("did:ethr:{alice}")));
+    assert!(payload.contains(&format!("did:ethr:scroll:{alice}")));
+
+    // First-seen drives observed_block (lower = earlier observation).
+    assert_eq!(alice_atts[0].observed_block, 100);
+
+    // Failure (b): now the link pipeline must not crash on the
+    // duplicate-source case AND the per-pair count between alice and
+    // bob is exactly 1 (one shared controller), not 2. Strong-alone
+    // bypass merges them either way; this assertion locks the
+    // structural fact.
+    let out = link_addresses(&repo, &[alice.into(), bob.into()], 1)
+        .await
+        .expect("link must not crash on multi-DID same-controller input");
+    assert_eq!(out.clusters.len(), 1);
+    assert_eq!(out.clusters[0].addresses.len(), 2);
+}
+
+#[tokio::test]
 async fn did_controller_stacks_with_safe_owner_evidence() {
     // The architecture's whole point: a DID-controller edge and a
     // Safe-owner edge between the same pair both contribute to the

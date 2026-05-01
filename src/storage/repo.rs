@@ -548,11 +548,18 @@ impl Repo {
             .map(|i| format!("?{i}"))
             .collect::<Vec<_>>()
             .join(",");
+        // Stable order for the extractor's "first-seen wins"
+        // dedup: rows are sorted by observed_block ascending, then
+        // by `did` lexicographically. The earliest observation of
+        // a (subject, controller) pair therefore drives the
+        // attestation's source / observed_block fields, regardless
+        // of the order rows happened to be inserted.
         let sql = format!(
             "SELECT did, subject_address, controller, method,
                     document_json, observed_block, source
              FROM did_documents
-             WHERE subject_address IN ({placeholders})"
+             WHERE subject_address IN ({placeholders})
+             ORDER BY observed_block ASC, did ASC"
         );
         let mut q = sqlx::query(&sql);
         for a in addresses {

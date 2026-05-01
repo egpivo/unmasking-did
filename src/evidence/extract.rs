@@ -97,35 +97,89 @@ fn normalize_handle(s: &str) -> String {
 /// dropped at extraction time. Including them would emit a
 /// self-referential edge that contributes no clustering signal: every
 /// address trivially controls its own implicit DID.
+///
+/// **Dedup**: multiple `did_documents` rows can share the same
+/// `(subject_address, controller)` — for example a single owner
+/// registering `did:ethr:0xabc` on Ethereum and `did:ethr:scroll:0xabc`
+/// on Scroll, both pointing at the same key. Without dedup, the
+/// extractor would emit one attestation per row, which has two
+/// independent failure modes:
+///   1. plain INSERT in `replace_attestations_for_kind` collides on
+///      the evidence `UNIQUE(address, kind, key, source)` index
+///      because `source` doesn't disambiguate by DID, and the entire
+///      link run aborts;
+///   2. even with the source field disambiguated, the per-pair edge
+///      count would inflate to N² for N DIDs supporting the same
+///      controller — a single logical fact gets weighted as if it
+///      were N independent observations, breaking the `min_evidence`
+///      threshold's semantic.
+/// We collapse to one attestation per `(subject, controller)` pair
+/// here, with the full list of supporting DIDs preserved in
+/// `payload_json` so audit information isn't lost. The
+/// "first-seen" `did_documents` row (lowest `observed_block`, then
+/// lexicographically smallest `did`) drives the attestation's
+/// `source` and `observed_block` fields — the underlying query
+/// orders rows that way for determinism.
 pub async fn extract_did_controller(
     repo: &Repo,
     addresses: &[String],
 ) -> Result<Vec<Attestation>> {
+    use std::collections::HashMap;
+
     let normalized: Vec<String> = addresses.iter().map(|a| a.to_lowercase()).collect();
     let docs = repo.did_documents_for(&normalized).await?;
 
-    let mut out = Vec::new();
+    struct Aggregated {
+        first_method: String,
+        first_source: String,
+        first_block: i64,
+        supporting_dids: Vec<String>,
+        supporting_methods: Vec<String>,
+    }
+
+    let mut by_pair: HashMap<(String, String), Aggregated> = HashMap::new();
     for doc in docs {
         let subject = doc.subject_address.to_lowercase();
         let controller = doc.controller.to_lowercase();
         if subject == controller {
             continue;
         }
-        let payload = serde_json::json!({
-            "did": doc.did,
-            "method": doc.method,
-        })
-        .to_string();
-        out.push(Attestation {
-            address: subject,
-            kind: EvidenceKind::DidController,
-            key: controller,
-            strength: Strength::Strong,
-            source: format!("did_documents:{}:{}", doc.method, doc.source),
-            observed_block: doc.observed_block.unwrap_or(0),
-            payload_json: Some(payload),
-        });
+        let entry = by_pair
+            .entry((subject, controller))
+            .or_insert_with(|| Aggregated {
+                first_method: doc.method.clone(),
+                first_source: doc.source.clone(),
+                first_block: doc.observed_block.unwrap_or(0),
+                supporting_dids: Vec::new(),
+                supporting_methods: Vec::new(),
+            });
+        entry.supporting_dids.push(doc.did);
+        entry.supporting_methods.push(doc.method);
     }
+
+    let mut out: Vec<Attestation> = by_pair
+        .into_iter()
+        .map(|((subject, controller), agg)| {
+            let payload = serde_json::json!({
+                "dids": agg.supporting_dids,
+                "methods": agg.supporting_methods,
+            })
+            .to_string();
+            Attestation {
+                address: subject,
+                kind: EvidenceKind::DidController,
+                key: controller,
+                strength: Strength::Strong,
+                source: format!("did_documents:{}:{}", agg.first_method, agg.first_source),
+                observed_block: agg.first_block,
+                payload_json: Some(payload),
+            }
+        })
+        .collect();
+
+    // Deterministic output order so downstream snapshot tests don't
+    // race on HashMap iteration.
+    out.sort_by(|a, b| a.address.cmp(&b.address).then_with(|| a.key.cmp(&b.key)));
     Ok(out)
 }
 
