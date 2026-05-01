@@ -2,43 +2,37 @@
 //!
 //! Each cluster becomes a `subgraph cluster_<i>` (the `cluster_`
 //! prefix is what triggers Graphviz's rounded-box rendering). Each
-//! identifier is a node. Each per-pair-per-kind aggregated edge is
-//! a labelled edge in the top-level graph.
+//! identifier is a node. Each per-pair-per-kind edge that **passed
+//! the merge invariant** becomes a labelled edge in the top-level
+//! graph — see `edges::passing_edges` for the per-pair reconstruction
+//! that prevents transitive cluster membership from being shown as
+//! direct evidence.
 //!
 //! Edge data is rebuilt from the `attestations` snapshot the caller
-//! passes in; this is the same set of evidence rows the markdown
-//! renderer uses, so both outputs reflect the same view of the
-//! `evidence` cache. Important caveat: that cache is the *current*
-//! state, not a snapshot at `run.run_id` — if `evidence` has been
-//! touched since the run, the rendered graph may diverge from the
-//! persisted cluster shape. Persisting per-pair edges per run would
-//! fix that and is on the M3.5+ backlog (see the calling note in
-//! `main.rs::run_report`).
+//! passes in. Important caveat: that cache is the *current* state,
+//! not a snapshot at `run.run_id` — if `evidence` has been touched
+//! since the run, the rendered graph may diverge from the persisted
+//! cluster shape. Persisting per-pair edges per run would fix that
+//! and is on the M3.5+ backlog (see `main.rs::run_report`).
 //!
 //! Rendering is deterministic: clusters sorted by `cluster_id`,
 //! addresses sorted within each cluster, edges sorted by
-//! `(src, dst, kind, key)`. Identical inputs produce byte-identical
-//! DOT output, so the export plays nicely with snapshot tests and
-//! version control.
+//! `(src, dst, kind)` via the `BTreeMap` in `passing_edges`.
+//! Identical inputs produce byte-identical DOT output.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashMap;
 
-use crate::evidence::{Attestation, EvidenceKind};
+use crate::evidence::{EvidenceKind, Strength};
 use crate::linking::{ClusterReport, SkippedKey};
 use crate::storage::ClusteringRunSummary;
 
-/// `(kind, key)` groups exceeding this many identifiers are treated
-/// as service-like (CEX hot wallets, bridges, batch distributors,
-/// faucets) and not rendered as clustering edges. Mirrors the
-/// `FAN_OUT_CAP` in `linking::features` so the visualization shows
-/// the same edges the merge invariant actually saw.
-const FAN_OUT_CAP: usize = 50;
+use super::edges::{passing_edges, run_params, ClusterEdge};
 
 pub struct DotInputs<'a> {
     pub run: &'a ClusteringRunSummary,
     pub clusters: &'a [ClusterReport],
     pub skipped: &'a [SkippedKey],
-    pub attestations: &'a [Attestation],
+    pub attestations: &'a [crate::evidence::Attestation],
 }
 
 pub fn render_dot(input: &DotInputs<'_>) -> String {
@@ -65,6 +59,19 @@ pub fn render_dot(input: &DotInputs<'_>) -> String {
     ));
 
     // -- clusters --------------------------------------------------
+    // Reconstruct merge-passing edges from the current evidence
+    // snapshot. This is the only correct basis for both edge
+    // rendering and cluster-descriptor selection — using all
+    // attestations on member addresses (the previous approach) would
+    // overstate the cluster's evidence basis whenever any member
+    // happened to carry an unrelated, unshared kind, and would draw
+    // edges between transitively-connected pairs that did not
+    // themselves pass the merge rule.
+    let (min_evidence, fan_out_cap) = run_params(&input.run.params_json);
+    let edges = passing_edges(input.attestations, input.clusters, min_evidence, fan_out_cap);
+
+    // Index passing edges by cluster index so we can label each
+    // cluster by its dominant *contributing* evidence kind.
     let mut clusters: Vec<&ClusterReport> = input.clusters.iter().collect();
     clusters.sort_by(|a, b| a.cluster_id.cmp(&b.cluster_id));
 
@@ -74,11 +81,17 @@ pub fn render_dot(input: &DotInputs<'_>) -> String {
         .flat_map(|(i, c)| c.addresses.iter().map(move |a| (a.as_str(), i)))
         .collect();
 
-    let kinds_per_address = group_kinds_by_address(input.attestations);
+    let mut edges_by_cluster: HashMap<usize, Vec<&ClusterEdge<'_>>> = HashMap::new();
+    for e in &edges {
+        if let Some(&ci) = address_to_cluster.get(e.src) {
+            edges_by_cluster.entry(ci).or_default().push(e);
+        }
+    }
 
     for (i, cluster) in clusters.iter().enumerate() {
         out.push_str(&format!("    subgraph cluster_{i} {{\n"));
-        let descriptor = cluster_descriptor(cluster, &kinds_per_address);
+        let descriptor =
+            cluster_descriptor(edges_by_cluster.get(&i).map(|v| v.as_slice()).unwrap_or(&[]));
         out.push_str(&format!(
             "        label=\"{} \\n {} ({} identifier{})\";\n",
             descriptor,
@@ -100,80 +113,17 @@ pub fn render_dot(input: &DotInputs<'_>) -> String {
         out.push_str("    }\n\n");
     }
 
-    // -- edges ----------------------------------------------------
-    // Aggregate attestations into per-pair-per-kind edges. We only
-    // emit edges between identifiers that share a cluster — edges
-    // crossing cluster boundaries would imply the merge invariant
-    // rejected them, and showing them here would clutter the graph
-    // with non-clustering signal. The `Suspected service keys` table
-    // (see the markdown report) is the right place to surface what
-    // got dropped.
-    let mut by_kind_key: HashMap<(EvidenceKind, &str), Vec<&Attestation>> = HashMap::new();
-    for att in input.attestations {
-        by_kind_key
-            .entry((att.kind, att.key.as_str()))
-            .or_default()
-            .push(att);
+    if !edges.is_empty() {
+        out.push_str(
+            "    // edges: per-pair-per-kind, restricted to pairs that passed\n    //        the merge invariant for this run (see report/edges.rs)\n",
+        );
     }
-
-    type PairKey<'a> = (&'a str, &'a str, EvidenceKind);
-    struct Aggregate<'a> {
-        keys: Vec<&'a str>,
-        strength: crate::evidence::Strength,
-    }
-    let mut by_pair: BTreeMap<PairKey<'_>, Aggregate<'_>> = BTreeMap::new();
-
-    for ((kind, key), atts) in by_kind_key {
-        if atts.len() < 2 || atts.len() > FAN_OUT_CAP {
-            continue;
-        }
-        // De-duplicate addresses inside a single (kind, key) group so
-        // a self-loop never lands in the visualization, and emit one
-        // edge per unordered pair of distinct addresses.
-        let mut addrs: Vec<&str> = atts.iter().map(|a| a.address.as_str()).collect();
-        addrs.sort();
-        addrs.dedup();
-        if addrs.len() < 2 {
-            continue;
-        }
-        for i in 0..addrs.len() {
-            for j in (i + 1)..addrs.len() {
-                let a = addrs[i];
-                let b = addrs[j];
-                // Same-cluster filter: skip if the pair was rejected
-                // by the merge invariant.
-                let (Some(&ca), Some(&cb)) =
-                    (address_to_cluster.get(a), address_to_cluster.get(b))
-                else {
-                    continue;
-                };
-                if ca != cb {
-                    continue;
-                }
-                let pair_kind = (a, b, kind);
-                let entry = by_pair.entry(pair_kind).or_insert(Aggregate {
-                    keys: Vec::new(),
-                    strength: atts[0].strength,
-                });
-                if !entry.keys.contains(&key) {
-                    entry.keys.push(key);
-                }
-                if atts[0].strength > entry.strength {
-                    entry.strength = atts[0].strength;
-                }
-            }
-        }
-    }
-
-    if !by_pair.is_empty() {
-        out.push_str("    // edges: per-pair-per-kind aggregated from `evidence`\n");
-    }
-    for ((src, dst, kind), agg) in &by_pair {
-        let label = edge_label(*kind, agg.strength, &agg.keys);
+    for edge in &edges {
+        let label = edge_label(edge.kind, edge.strength, &edge.keys);
         out.push_str(&format!(
             "    \"{}\" -- \"{}\" [label=\"{}\"];\n",
-            escape_id(src),
-            escape_id(dst),
+            escape_id(edge.src),
+            escape_id(edge.dst),
             escape_label(&label)
         ));
     }
@@ -194,33 +144,24 @@ pub fn render_dot(input: &DotInputs<'_>) -> String {
     out
 }
 
-fn group_kinds_by_address(
-    attestations: &[Attestation],
-) -> HashMap<String, HashSet<EvidenceKind>> {
-    let mut by_addr: HashMap<String, HashSet<EvidenceKind>> = HashMap::new();
-    for a in attestations {
-        by_addr.entry(a.address.clone()).or_default().insert(a.kind);
+/// Pick a phrase for a cluster heading based on the strongest evidence
+/// kind that **actually contributed merge-passing edges** within the
+/// cluster — not on every kind any member happened to have. A cluster
+/// merged purely via `safe_owner` will not be relabelled
+/// "controller-level" just because one member separately carries an
+/// unrelated `did_controller` attestation.
+fn cluster_descriptor(edges: &[&ClusterEdge<'_>]) -> &'static str {
+    if edges.is_empty() {
+        return "evidence-supported cluster";
     }
-    by_addr
-}
-
-fn cluster_descriptor(
-    cluster: &ClusterReport,
-    kinds_per_address: &HashMap<String, HashSet<EvidenceKind>>,
-) -> &'static str {
-    let mut all_kinds: HashSet<EvidenceKind> = HashSet::new();
-    for addr in &cluster.addresses {
-        if let Some(ks) = kinds_per_address.get(addr) {
-            all_kinds.extend(ks.iter().copied());
-        }
+    let max_strength = edges.iter().map(|e| e.strength).max();
+    if max_strength == Some(Strength::Strong) {
+        return "controller-level cluster";
     }
-    if all_kinds.contains(&EvidenceKind::DidController) {
-        "controller-level cluster"
-    } else if all_kinds.contains(&EvidenceKind::SafeOwner) {
-        "shared-owner cluster"
-    } else {
-        "evidence-supported cluster"
+    if edges.iter().any(|e| e.kind == EvidenceKind::SafeOwner) {
+        return "shared-owner cluster";
     }
+    "evidence-supported cluster"
 }
 
 fn edge_label(kind: EvidenceKind, strength: crate::evidence::Strength, keys: &[&str]) -> String {
@@ -267,7 +208,7 @@ fn escape_comment(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evidence::Strength;
+    use crate::evidence::{Attestation, Strength};
 
     fn synth_run() -> ClusteringRunSummary {
         ClusteringRunSummary {
