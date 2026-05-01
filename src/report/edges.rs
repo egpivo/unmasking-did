@@ -109,37 +109,48 @@ pub fn passing_edges<'a>(
             .push(att);
     }
 
-    // Pass 1 — per-pair totals across all kinds. Mirrors the
-    // `per_pair` table that `linking::features::build_clusters`
-    // computes during the link run, which is the input to the merge
-    // invariant.
+    // Pass 1 — per-pair totals across all kinds. Iterates RAW
+    // attestation pairs `(atts[i], atts[j])` and matches the linker
+    // (`linking::features::build_clusters`) exactly.
     //
-    // Per-pair strength matches the linker EXACTLY: for each pair
-    // `(addr_i, addr_j)` in a `(kind, key)` group, the edge strength
-    // is `max(strength_at_addr_i, strength_at_addr_j)`. We can't take
-    // a single strength for the whole group — different attestations
-    // in the same group can have different strengths (today only via
-    // direct `insert_attestations`; tomorrow once weighted variants
-    // ship), and in that case using `atts[0].strength` would make the
-    // reconstruction depend on row order — pairs that merge in
-    // linking would silently disappear from DOT/Markdown.
+    // The linker treats every raw row pairing across two distinct
+    // addresses as a separate graph edge. So if address `A` has
+    // two `(kind, key)` rows from different sources and address `B`
+    // has one, the linker emits 2 cross edges for that single shared
+    // key — `count(A, B) == 2` from one key alone, enough to clear
+    // `min_evidence = 2` on its own.
+    //
+    // That semantic is questionable — a single shared key gets
+    // weighted by source multiplicity rather than mutual evidence —
+    // but reconstruction MUST match the production link path, or
+    // the renderers disagree with the persisted cluster shape. A
+    // semantic cleanup (dedup per `(address, kind, key)` in the
+    // linker as well) is a deliberate behavior change and out of
+    // scope for this branch.
+    //
+    // Per-pair strength is `max(atts[i].strength, atts[j].strength)`,
+    // computed per raw pair — addresses MAY appear in multiple rows
+    // with different strengths, and the strongest cross-row pairing
+    // wins (mirrors the linker, regression-tested below).
     type PairKey<'a> = (&'a str, &'a str);
     let mut pair_totals: HashMap<PairKey<'a>, (usize, Strength)> = HashMap::new();
     for ((_kind, _key), atts) in &by_kind_key {
         if atts.len() < 2 || atts.len() > fan_out_cap {
             continue;
         }
-        let strength_by_addr = max_strength_by_address(atts);
-        let mut addrs: Vec<&'a str> = strength_by_addr.keys().copied().collect();
-        addrs.sort();
-        if addrs.len() < 2 {
-            continue;
-        }
-        for i in 0..addrs.len() {
-            for j in (i + 1)..addrs.len() {
-                let (lo, hi) = canonical_pair(addrs[i], addrs[j]);
-                let pair_strength = strength_for(&strength_by_addr, addrs[i])
-                    .max(strength_for(&strength_by_addr, addrs[j]));
+        for i in 0..atts.len() {
+            for j in (i + 1)..atts.len() {
+                let a_i = atts[i].address.as_str();
+                let a_j = atts[j].address.as_str();
+                if a_i == a_j {
+                    // Self-loop — the linker emits these too, but
+                    // `uf.union(a, a)` is a no-op so they don't
+                    // contribute to clustering. Drop them here so
+                    // they don't flood the visualization.
+                    continue;
+                }
+                let (lo, hi) = canonical_pair(a_i, a_j);
+                let pair_strength = atts[i].strength.max(atts[j].strength);
                 let entry = pair_totals.entry((lo, hi)).or_insert((0, Strength::Weak));
                 entry.0 += 1;
                 if pair_strength > entry.1 {
@@ -150,8 +161,10 @@ pub fn passing_edges<'a>(
     }
 
     // Pass 2 — emit per-(pair, kind) aggregates, filtered by the
-    // merge invariant + same-cluster guard. Same per-pair strength
-    // logic as Pass 1.
+    // merge invariant + same-cluster guard. Same raw-row iteration
+    // as Pass 1; deduping happens at the `keys` field level so the
+    // rendered label says "3 shared owners" rather than "3 sources
+    // for owner X".
     struct Builder<'a> {
         keys: Vec<&'a str>,
         strength: Strength,
@@ -163,15 +176,14 @@ pub fn passing_edges<'a>(
         if atts.len() < 2 || atts.len() > fan_out_cap {
             continue;
         }
-        let strength_by_addr = max_strength_by_address(&atts);
-        let mut addrs: Vec<&'a str> = strength_by_addr.keys().copied().collect();
-        addrs.sort();
-        if addrs.len() < 2 {
-            continue;
-        }
-        for i in 0..addrs.len() {
-            for j in (i + 1)..addrs.len() {
-                let (lo, hi) = canonical_pair(addrs[i], addrs[j]);
+        for i in 0..atts.len() {
+            for j in (i + 1)..atts.len() {
+                let a_i = atts[i].address.as_str();
+                let a_j = atts[j].address.as_str();
+                if a_i == a_j {
+                    continue;
+                }
+                let (lo, hi) = canonical_pair(a_i, a_j);
 
                 let (Some(&ca), Some(&cb)) =
                     (address_to_cluster.get(lo), address_to_cluster.get(hi))
@@ -190,9 +202,7 @@ pub fn passing_edges<'a>(
                     continue;
                 }
 
-                let pair_strength = strength_for(&strength_by_addr, addrs[i])
-                    .max(strength_for(&strength_by_addr, addrs[j]));
-
+                let pair_strength = atts[i].strength.max(atts[j].strength);
                 let entry = by_pair_kind.entry((lo, hi, kind)).or_insert_with(|| Builder {
                     keys: Vec::new(),
                     strength: pair_strength,
@@ -227,28 +237,6 @@ fn canonical_pair<'a>(a: &'a str, b: &'a str) -> (&'a str, &'a str) {
     }
 }
 
-/// For a single `(kind, key)` group, fold all of an address's
-/// attestations into one max strength value. Multiple attestations
-/// sharing the same `(address, kind, key)` differ only by `source`
-/// thanks to the evidence UNIQUE constraint, but they CAN carry
-/// different strengths once weighted variants ship — we want the
-/// strongest observation for that address in that group.
-fn max_strength_by_address<'a>(atts: &[&'a Attestation]) -> HashMap<&'a str, Strength> {
-    let mut by_addr: HashMap<&'a str, Strength> = HashMap::new();
-    for att in atts {
-        let entry = by_addr
-            .entry(att.address.as_str())
-            .or_insert(Strength::Weak);
-        if att.strength > *entry {
-            *entry = att.strength;
-        }
-    }
-    by_addr
-}
-
-fn strength_for(map: &HashMap<&str, Strength>, addr: &str) -> Strength {
-    map.get(addr).copied().unwrap_or(Strength::Weak)
-}
 
 #[cfg(test)]
 mod tests {
@@ -413,6 +401,45 @@ mod tests {
             "row order must not affect merge reconstruction"
         );
         assert_eq!(edges_reversed[0].strength, edges[0].strength);
+    }
+
+    #[test]
+    fn per_source_duplication_matches_linker_count_inflation() {
+        // Regression: when one address has multiple attestations for
+        // the same `(kind, key)` from different sources, the linker
+        // emits one cross-pair edge per raw-row pairing, so a single
+        // shared key can satisfy `min_evidence > 1` on its own.
+        //
+        // Setup: A has TWO `funded_by` rows for the same funder
+        // (different sources — legal under the evidence UNIQUE
+        // constraint, which includes `source`). B has one. With
+        // `min_evidence = 2`, the linker computes
+        // `count(A, B) = m * n = 2 * 1 = 2` and merges. Reconstruction
+        // must agree, otherwise persisted clusters would silently
+        // disagree with rendered DOT/Markdown.
+        let a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let funder = "0xfeefeefeefeefeefeefeefeefeefeefeefeefee0";
+
+        let mut atts = vec![
+            att(a, EvidenceKind::FundedBy, funder, Strength::Medium),
+            att(a, EvidenceKind::FundedBy, funder, Strength::Medium),
+            att(b, EvidenceKind::FundedBy, funder, Strength::Medium),
+        ];
+        // Override `source` so the three rows are actually distinct
+        // under UNIQUE(address, kind, key, source).
+        atts[0].source = "alchemy_getAssetTransfers@1".into();
+        atts[1].source = "alchemy_getAssetTransfers@2".into();
+        atts[2].source = "alchemy_getAssetTransfers@3".into();
+
+        let clusters = vec![cluster(&[a, b])];
+        let edges = passing_edges(&atts, &clusters, 2, 50);
+        assert_eq!(
+            edges.len(),
+            1,
+            "linker counts m*n cross edges from per-source duplication; reconstruction must agree"
+        );
+        assert_eq!(edges[0].kind, EvidenceKind::FundedBy);
     }
 
     #[test]
