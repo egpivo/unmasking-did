@@ -11,7 +11,6 @@
 //! produced. It's the contract `report` and `metrics` rely on now that
 //! both read persisted state instead of re-clustering.
 
-use sqlx::Row;
 use unmasking_did::alchemy::Transfer;
 use unmasking_did::ens::EnsRecord;
 use unmasking_did::linking::link_and_persist;
