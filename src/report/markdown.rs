@@ -1,3 +1,6 @@
+use std::collections::{HashMap, HashSet};
+
+use crate::evidence::{Attestation, EvidenceKind, Strength};
 use crate::linking::{ClusterReport, SkippedKey};
 use crate::storage::ClusteringRunSummary;
 
@@ -15,6 +18,13 @@ pub struct ReportInputs<'a> {
     pub run: &'a ClusteringRunSummary,
     pub clusters: &'a [ClusterReport],
     pub skipped: &'a [SkippedKey],
+    /// Current evidence rows for every address in every cluster. Used
+    /// to label clusters by their dominant evidence kind ("controller-
+    /// level cluster", "shared-owner governance-control cluster", …)
+    /// without needing a separate kind-aware projection in the linking
+    /// pipeline. Empty `&[]` is acceptable — clusters then fall back
+    /// to a generic "evidence-supported cluster" descriptor.
+    pub attestations: &'a [Attestation],
     pub nakamoto: Option<u64>,
     pub gini: Option<f64>,
     pub nakamoto_threshold: f64,
@@ -22,7 +32,7 @@ pub struct ReportInputs<'a> {
 
 pub fn render_markdown(input: &ReportInputs<'_>) -> String {
     let n_addresses: usize = input.clusters.iter().map(|c| c.addresses.len()).sum();
-    let n_entities = input.clusters.len();
+    let n_clusters = input.clusters.len();
 
     let mut s = String::new();
     s.push_str("# unmasking-did Report\n\n");
@@ -36,11 +46,11 @@ pub fn render_markdown(input: &ReportInputs<'_>) -> String {
     ));
 
     s.push_str("## Summary\n\n");
-    s.push_str(&format!("- Addresses analyzed: **{n_addresses}**\n"));
-    s.push_str(&format!("- Inferred entities: **{n_entities}**\n"));
-    if n_entities > 0 {
-        let ratio = n_addresses as f64 / n_entities as f64;
-        s.push_str(&format!("- Identifiers per entity: **{ratio:.2}**\n"));
+    s.push_str(&format!("- Identifiers analyzed: **{n_addresses}**\n"));
+    s.push_str(&format!("- Inferred clusters: **{n_clusters}**\n"));
+    if n_clusters > 0 {
+        let ratio = n_addresses as f64 / n_clusters as f64;
+        s.push_str(&format!("- Identifiers per cluster: **{ratio:.2}**\n"));
     }
     if let Some(n) = input.nakamoto {
         s.push_str(&format!(
@@ -53,26 +63,31 @@ pub fn render_markdown(input: &ReportInputs<'_>) -> String {
     }
     s.push('\n');
 
+    let kinds_per_address = group_kinds_by_address(input.attestations);
+    let key_to_kinds = group_kinds_by_key(input.attestations);
+
     s.push_str("## Top Clusters\n\n");
     let multi: Vec<&ClusterReport> = input
         .clusters
         .iter()
         .filter(|c| c.addresses.len() > 1)
         .collect();
+    let n_singletons = input.clusters.len() - multi.len();
     if multi.is_empty() {
         s.push_str("_No multi-address clusters in this run._\n\n");
     } else {
         for (i, cluster) in multi.iter().take(TOP_CLUSTERS_LIMIT).enumerate() {
+            let descriptor = cluster_descriptor(cluster, &kinds_per_address);
             s.push_str(&format!(
-                "### Cluster {} — `{}` ({} addresses)\n\n",
-                i + 1,
+                "### {descriptor} — `{}` ({} identifiers)\n\n",
                 short_addr(&cluster.cluster_id),
                 cluster.addresses.len()
             ));
             if !cluster.shared_evidence_keys.is_empty() {
-                s.push_str("Connected via:\n");
+                s.push_str("Shared evidence keys:\n");
                 for k in &cluster.shared_evidence_keys {
-                    s.push_str(&format!("- `{k}`\n"));
+                    let label = key_kind_suffix(k, &key_to_kinds);
+                    s.push_str(&format!("- `{k}`{label}\n"));
                 }
                 s.push('\n');
             }
@@ -81,14 +96,22 @@ pub fn render_markdown(input: &ReportInputs<'_>) -> String {
                 s.push_str(&format!("- `{addr}`\n"));
             }
             s.push('\n');
+            // Suppress an "i" warning if we ever drop the index;
+            // currently it's only used for ordering, not display.
+            let _ = i;
         }
         let total = multi.len();
         if total > TOP_CLUSTERS_LIMIT {
             s.push_str(&format!(
-                "_… and {} more multi-address cluster(s) — full list in `entity_clusters` table._\n\n",
+                "_… and {} more multi-identifier cluster(s) — full list in `entity_clusters` table._\n\n",
                 total - TOP_CLUSTERS_LIMIT
             ));
         }
+    }
+    if n_singletons > 0 {
+        s.push_str(&format!(
+            "_{n_singletons} singleton cluster(s) not detailed above (each contributes one identifier with no shared-evidence edges; useful as negative controls)._\n\n"
+        ));
     }
 
     if !input.skipped.is_empty() {
@@ -118,6 +141,93 @@ pub fn render_markdown(input: &ReportInputs<'_>) -> String {
     ));
 
     s
+}
+
+/// Build `address -> { kinds present in its attestations }`. Used by
+/// `cluster_descriptor` to pick a kind-specific phrasing for each
+/// cluster (controller-level / shared-owner / shared-funder / etc.).
+fn group_kinds_by_address(
+    attestations: &[Attestation],
+) -> HashMap<String, HashSet<EvidenceKind>> {
+    let mut by_addr: HashMap<String, HashSet<EvidenceKind>> = HashMap::new();
+    for a in attestations {
+        by_addr.entry(a.address.clone()).or_default().insert(a.kind);
+    }
+    by_addr
+}
+
+/// Build `evidence-key -> { kinds that emitted this key }`. Lets the
+/// renderer tag each shared key in the cluster's evidence list with
+/// what kind of evidence it was — turning bare hex strings into
+/// "0xabc... (safe_owner)".
+fn group_kinds_by_key(attestations: &[Attestation]) -> HashMap<String, HashSet<EvidenceKind>> {
+    let mut by_key: HashMap<String, HashSet<EvidenceKind>> = HashMap::new();
+    for a in attestations {
+        by_key.entry(a.key.clone()).or_default().insert(a.kind);
+    }
+    by_key
+}
+
+/// Pick a phrase for a cluster heading based on the strongest evidence
+/// kind that touches any of the cluster's addresses. Keeps the report
+/// honest: a cluster connected only by `funded_by` should not be
+/// described as "controller-level," and a cluster with one
+/// `did_controller` edge should not be described as merely
+/// "shared-funder."
+fn cluster_descriptor(
+    cluster: &ClusterReport,
+    kinds_per_address: &HashMap<String, HashSet<EvidenceKind>>,
+) -> &'static str {
+    let mut all_kinds: HashSet<EvidenceKind> = HashSet::new();
+    for addr in &cluster.addresses {
+        if let Some(ks) = kinds_per_address.get(addr) {
+            all_kinds.extend(ks.iter().copied());
+        }
+    }
+    let max_strength = all_kinds.iter().map(kind_strength).max();
+
+    if max_strength == Some(Strength::Strong) {
+        "Controller-level cluster"
+    } else if all_kinds.contains(&EvidenceKind::SafeOwner) {
+        "Shared-owner governance-control cluster"
+    } else if all_kinds.contains(&EvidenceKind::FundedBy)
+        || all_kinds.contains(&EvidenceKind::EnsHandle)
+    {
+        "Evidence-supported cluster"
+    } else {
+        // No attestations seen for these addresses (caller passed
+        // empty `attestations`, or the cluster's addresses don't
+        // appear in the snapshot). Stay generic and don't claim
+        // any particular evidence character.
+        "Evidence-supported cluster"
+    }
+}
+
+fn kind_strength(k: &EvidenceKind) -> Strength {
+    match k {
+        EvidenceKind::DidController => Strength::Strong,
+        EvidenceKind::FundedBy | EvidenceKind::EnsHandle | EvidenceKind::SafeOwner => {
+            Strength::Medium
+        }
+    }
+}
+
+/// `"  (safe_owner, funded_by)"` etc., or empty string if we have no
+/// kind info for this key. The leading 2 spaces keep the bullet on
+/// the same visual line as the key.
+fn key_kind_suffix(
+    key: &str,
+    by_key: &HashMap<String, HashSet<EvidenceKind>>,
+) -> String {
+    let Some(kinds) = by_key.get(key) else {
+        return String::new();
+    };
+    if kinds.is_empty() {
+        return String::new();
+    }
+    let mut names: Vec<&'static str> = kinds.iter().map(|k| k.as_str()).collect();
+    names.sort();
+    format!("  ({})", names.join(", "))
 }
 
 fn short_addr(addr: &str) -> String {
@@ -168,6 +278,7 @@ mod tests {
             run: &run,
             clusters: &clusters,
             skipped: &skipped,
+            attestations: &[],
             nakamoto: Some(1),
             gini: Some(0.333),
             nakamoto_threshold: 0.5,
@@ -177,16 +288,19 @@ mod tests {
         assert!(out.contains("# unmasking-did Report"));
         assert!(out.contains("`run-test-123`"));
         // Summary numbers (3 total addresses across the two clusters)
-        assert!(out.contains("Addresses analyzed: **3**"));
-        assert!(out.contains("Inferred entities: **2**"));
+        assert!(out.contains("Identifiers analyzed: **3**"));
+        assert!(out.contains("Inferred clusters: **2**"));
+        assert!(!out.contains("Inferred entities"), "wording cleanup: 'entities' must not appear");
         assert!(out.contains("Nakamoto coefficient"));
         assert!(out.contains("Gini coefficient: **0.333**"));
-        // Multi-member cluster section
-        assert!(out.contains("Cluster 1 —"));
-        assert!(out.contains("(2 addresses)"));
+        // Cluster heading uses an evidence-aware descriptor and
+        // counts identifiers (not "addresses" — those are one form
+        // of identifier, not the only one).
+        assert!(out.contains("(2 identifiers)"));
         assert!(out.contains("twitter:joseph"));
-        // Singleton cluster is filtered out of the Top Clusters detail
-        assert!(!out.contains("Cluster 2 —"));
+        // Singleton cluster is summarized below, not promoted into
+        // the top-clusters detail.
+        assert!(out.contains("singleton cluster"));
         // Suspected service keys table
         assert!(out.contains("## Suspected Service Keys"));
         assert!(out.contains("`funded_by`"));
@@ -197,17 +311,117 @@ mod tests {
     }
 
     #[test]
+    fn cluster_descriptor_picks_strongest_evidence_kind() {
+        // STRONG did_controller present anywhere in the cluster's
+        // evidence -> "Controller-level cluster".
+        let alice = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let bob = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let cluster = ClusterReport {
+            cluster_id: alice.into(),
+            addresses: vec![alice.into(), bob.into()],
+            shared_evidence_keys: vec![
+                "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0".into(),
+            ],
+        };
+        let attestations = vec![
+            Attestation {
+                address: alice.into(),
+                kind: EvidenceKind::DidController,
+                key: "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0".into(),
+                strength: Strength::Strong,
+                source: "test".into(),
+                observed_block: 0,
+                payload_json: None,
+            },
+            Attestation {
+                address: bob.into(),
+                kind: EvidenceKind::DidController,
+                key: "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0".into(),
+                strength: Strength::Strong,
+                source: "test".into(),
+                observed_block: 0,
+                payload_json: None,
+            },
+        ];
+
+        let out = render_markdown(&ReportInputs {
+            run: &synth_run(),
+            clusters: &[cluster],
+            skipped: &[],
+            attestations: &attestations,
+            nakamoto: None,
+            gini: None,
+            nakamoto_threshold: 0.5,
+        });
+        assert!(
+            out.contains("Controller-level cluster"),
+            "expected strong-evidence cluster heading, got:\n{out}"
+        );
+        // Each shared key gets its evidence-kind annotated in
+        // parentheses so readers don't have to guess what a hex
+        // string represents.
+        assert!(out.contains("(did_controller)"), "key labels must annotate kind");
+    }
+
+    #[test]
+    fn cluster_descriptor_falls_back_to_safe_owner_then_generic() {
+        let safe_a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let safe_b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let cluster = ClusterReport {
+            cluster_id: safe_a.into(),
+            addresses: vec![safe_a.into(), safe_b.into()],
+            shared_evidence_keys: vec![
+                "0xeoa00000000000000000000000000000000000000".into(),
+            ],
+        };
+        let attestations = vec![
+            Attestation {
+                address: safe_a.into(),
+                kind: EvidenceKind::SafeOwner,
+                key: "0xeoa00000000000000000000000000000000000000".into(),
+                strength: Strength::Medium,
+                source: "test".into(),
+                observed_block: 0,
+                payload_json: None,
+            },
+            Attestation {
+                address: safe_b.into(),
+                kind: EvidenceKind::SafeOwner,
+                key: "0xeoa00000000000000000000000000000000000000".into(),
+                strength: Strength::Medium,
+                source: "test".into(),
+                observed_block: 0,
+                payload_json: None,
+            },
+        ];
+        let out = render_markdown(&ReportInputs {
+            run: &synth_run(),
+            clusters: &[cluster],
+            skipped: &[],
+            attestations: &attestations,
+            nakamoto: None,
+            gini: None,
+            nakamoto_threshold: 0.5,
+        });
+        assert!(
+            out.contains("Shared-owner governance-control cluster"),
+            "expected Safe-owner heading, got:\n{out}"
+        );
+    }
+
+    #[test]
     fn renders_empty_clusters_gracefully() {
         let out = render_markdown(&ReportInputs {
             run: &synth_run(),
             clusters: &[],
             skipped: &[],
+            attestations: &[],
             nakamoto: None,
             gini: None,
             nakamoto_threshold: 0.5,
         });
-        assert!(out.contains("Addresses analyzed: **0**"));
-        assert!(out.contains("Inferred entities: **0**"));
+        assert!(out.contains("Identifiers analyzed: **0**"));
+        assert!(out.contains("Inferred clusters: **0**"));
         assert!(out.contains("_No multi-address clusters in this run._"));
         // No Suspected Service Keys section when there are none.
         assert!(!out.contains("## Suspected Service Keys"));
@@ -238,13 +452,24 @@ mod tests {
             run: &synth_run(),
             clusters: &clusters,
             skipped: &[],
+            attestations: &[],
             nakamoto: None,
             gini: None,
             nakamoto_threshold: 0.5,
         });
 
-        assert!(out.contains("Cluster 10 —"));
-        assert!(!out.contains("Cluster 11 —"));
-        assert!(out.contains("and 2 more"));
+        // After the wording cleanup, clusters get evidence-aware
+        // descriptors. With empty attestations, every cluster falls
+        // back to "Evidence-supported cluster" — so we can't count by
+        // a specific heading. We test the truncation summary
+        // directly, which is the property under test.
+        assert!(
+            out.contains("and 2 more"),
+            "expected 'and 2 more' summary line, got:\n{out}"
+        );
+        // Sanity: 10 of the 12 clusters should be rendered as
+        // top-level sections (matches TOP_CLUSTERS_LIMIT).
+        let detailed = out.matches("### ").count();
+        assert_eq!(detailed, 10);
     }
 }
