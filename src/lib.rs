@@ -1,5 +1,6 @@
 pub mod alchemy;
 pub mod config;
+pub mod did;
 pub mod ens;
 pub mod evidence;
 pub mod linking;

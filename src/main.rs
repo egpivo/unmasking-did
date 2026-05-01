@@ -6,6 +6,7 @@ use tracing_subscriber::EnvFilter;
 use tracing::warn;
 use unmasking_did::alchemy::AlchemyClient;
 use unmasking_did::config::Config;
+use unmasking_did::did::DidDocument;
 use unmasking_did::ens::EnsRecord;
 use unmasking_did::linking::link_and_persist;
 use unmasking_did::metrics::{gini, nakamoto_coefficient};
@@ -89,6 +90,30 @@ enum Command {
         #[arg(long)]
         observed_block: Option<i64>,
     },
+    /// Manually record one DID document's controller relationship.
+    /// When `--controller` differs from `--address`, the relationship
+    /// is emitted as STRONG `did_controller` evidence — a single
+    /// shared-controller edge is sufficient to merge two addresses
+    /// regardless of `--min-evidence`. Self-controlled DIDs (where
+    /// controller equals subject) are recorded but produce no
+    /// clustering edge. Until M3.5 lands an automated `did:ethr`
+    /// resolver, this is how `did_documents` gets populated.
+    AddDidDocument {
+        /// 0x-prefixed Ethereum-style address embedded in the DID.
+        #[arg(long)]
+        address: String,
+        /// Address authorised to update the DID document.
+        #[arg(long)]
+        controller: String,
+        /// DID method name (e.g. `ethr`, `pkh`, `web`, `key`).
+        #[arg(long, default_value = "ethr")]
+        method: String,
+        /// Full DID string. If omitted, derived as `did:<method>:<address>`.
+        #[arg(long)]
+        did: Option<String>,
+        #[arg(long)]
+        observed_block: Option<i64>,
+    },
 }
 
 #[tokio::main]
@@ -128,6 +153,13 @@ async fn main() -> Result<()> {
             threshold,
             observed_block,
         } => run_add_safe_owner(&repo, safe, owner, owner_is_safe, threshold, observed_block).await,
+        Command::AddDidDocument {
+            address,
+            controller,
+            method,
+            did,
+            observed_block,
+        } => run_add_did_document(&repo, address, controller, method, did, observed_block).await,
     }
 }
 
@@ -392,6 +424,41 @@ async fn run_add_safe_owner(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
             "stored": record,
+        }))?
+    );
+    Ok(())
+}
+
+async fn run_add_did_document(
+    repo: &Repo,
+    address: String,
+    controller: String,
+    method: String,
+    did: Option<String>,
+    observed_block: Option<i64>,
+) -> Result<()> {
+    let subject = normalize_address(&address)?;
+    let controller = normalize_address(&controller)?;
+    let did = did.unwrap_or_else(|| format!("did:{method}:{subject}"));
+    let doc = DidDocument {
+        did,
+        subject_address: subject.clone(),
+        controller,
+        method,
+        document_json: None,
+        observed_block,
+        source: "manual".to_string(),
+    };
+    repo.upsert_did_document(&doc).await?;
+    // Only the SUBJECT address enters `addresses` as a clustering
+    // subject. The controller is an evidence value and should not
+    // become a phantom singleton cluster on every link run, mirroring
+    // the equivalent guard in run_add_safe_owner.
+    repo.upsert_address(&subject, observed_block).await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "stored": doc,
         }))?
     );
     Ok(())

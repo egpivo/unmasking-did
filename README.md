@@ -107,12 +107,12 @@ and dropped from edge generation; their fan-out is recorded in
 
 Evidence kinds shipping today:
 
-| Kind            | Strength | Source                                | Status        |
-|-----------------|----------|---------------------------------------|---------------|
-| `funded_by`     | medium   | `alchemy_getAssetTransfers` cache     | M1, automated |
-| `ens_handle`    | medium   | `ens_records` (auto via `ingest`)     | M2.5, automated |
-| `safe_owner`    | medium   | `safe_owners` (auto via `ingest`, EOA owners only) | M2.5, automated |
-| `did_controller`| strong   | `did:ethr` / `did:pkh` documents      | M3, planned   |
+| Kind            | Strength | Source                                              | Status          |
+|-----------------|----------|-----------------------------------------------------|-----------------|
+| `funded_by`     | medium   | `alchemy_getAssetTransfers` cache                   | M1, automated   |
+| `ens_handle`    | medium   | `ens_records` (auto via `ingest`)                   | M2.5, automated |
+| `safe_owner`    | medium   | `safe_owners` (auto via `ingest`, EOA owners only)  | M2.5, automated |
+| `did_controller`| **strong** | `did_documents` (manual entry; auto resolver M3.5) | M3, manual      |
 
 `ens_handle` keys take the form `"<service>:<handle>"` with the handle
 lowercased and the leading `@` stripped — so `@joseph` and `Joseph`
@@ -123,6 +123,15 @@ themselves Safes are recorded for audit (`owner_is_safe = 1`) but
 excluded from edge generation: shared Safe-of-safe ownership tells us
 nothing about human-level control on its own.
 
+`did_controller` is the only **strong** evidence kind. A single shared
+DID controller — i.e. a cryptographic key authorised to update the DID
+document — is sufficient to merge two addresses regardless of
+`--min-evidence` (the strong-alone bypass in the merge invariant).
+Self-controlled DIDs (where the controller equals the subject — true
+of every freshly minted `did:ethr` and any `did:pkh`) emit no
+attestation: emitting "X controls X" would be a self-referential edge
+with no clustering signal.
+
 Manual entry remains available for testing and overrides:
 
 ```bash
@@ -131,6 +140,9 @@ cargo run -- add-ens-record \
 
 cargo run -- add-safe-owner \
   --safe 0xsafe... --owner 0xeoa... --threshold 2
+
+cargo run -- add-did-document \
+  --address 0xa1a1... --controller 0xc0c0... --method ethr
 ```
 
 ## Roadmap
@@ -150,9 +162,14 @@ cargo run -- add-safe-owner \
   keys, and a reproducibility footer pointing at `clustering_runs` /
   `entity_clusters` / `evidence`. `metrics` now also reads from the
   persisted run — neither command re-clusters.
-- **M3 — DID and metrics**: ingest `did:ethr` / `did:pkh` documents via
-  `ssi`, link by proven controller key (strong evidence), surface
-  decentralization metrics in a small report (HTML or notebook).
+- **M3 — DID controller evidence** *(done)*: `did_documents` schema,
+  `extract_did_controller` extractor emitting STRONG attestations,
+  CLI `add-did-document` for manual entry. The strong-alone bypass in
+  the merge invariant now has its first real-pipeline data.
+- **M3.5 — automated `did:ethr` resolver** *(planned)*: replace the
+  manual `add-did-document` path with a contract call to the
+  `EthereumDIDRegistry` (configurable per chain), the same shape as
+  M2.5's automated ENS / Safe resolvers.
 
 ## Project layout
 
@@ -164,6 +181,7 @@ src/
   alchemy/       JSON-RPC wrapper + alchemy_getAssetTransfers + eth_getCode
   ens/           EnsRecord type
   safe/          SafeOwner type
+  did/           DidDocument type
   evidence/      Strength + EvidenceKind types, per-kind extractors
   resolvers/     HTTP wrappers around ENS REST shim + Safe Tx Service
   linking/       petgraph clustering + invariants
