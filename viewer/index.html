@@ -187,6 +187,41 @@
       line-height: 1.5;
       font-size: 0.9rem;
     }
+    details.advanced {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      padding: 0.55rem 0.65rem;
+      margin-top: 0.6rem;
+    }
+    details.advanced > summary {
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 0.88rem;
+      color: #0f172a;
+    }
+    .advanced-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.55rem;
+      margin-top: 0.6rem;
+    }
+    .metric-box {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem;
+      font-size: 0.78rem;
+      background: #fff;
+    }
+    .metric-box .title {
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 0.66rem;
+      margin-bottom: 0.25rem;
+    }
+    .metric-list { margin: 0; padding-left: 1rem; }
+    .metric-list li { margin: 0.12rem 0; }
   </style>
 </head>
 <body>
@@ -234,6 +269,31 @@
         <div class="tooltip" id="tooltip"></div>
       </div>
       <p class="result-note">The giant cluster disappears. Smaller, interpretable clusters emerge.</p>
+      <details class="advanced">
+        <summary>Advanced metrics (pipeline + policy + lineage)</summary>
+        <div class="advanced-grid">
+          <div class="metric-box">
+            <div class="title">Coverage</div>
+            <ul class="metric-list" id="adv-coverage"></ul>
+          </div>
+          <div class="metric-box">
+            <div class="title">Ingestion / cost</div>
+            <ul class="metric-list" id="adv-ingestion"></ul>
+          </div>
+          <div class="metric-box">
+            <div class="title">Policy profile</div>
+            <ul class="metric-list" id="adv-policy"></ul>
+          </div>
+          <div class="metric-box">
+            <div class="title">Lineage</div>
+            <ul class="metric-list" id="adv-lineage"></ul>
+          </div>
+          <div class="metric-box">
+            <div class="title">Concentration</div>
+            <ul class="metric-list" id="adv-concentration"></ul>
+          </div>
+        </div>
+      </details>
     </section>
 
     <section id="inspect">

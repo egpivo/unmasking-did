@@ -20,6 +20,11 @@
     svg: document.getElementById("graph"),
     graphWrap: document.getElementById("graph-wrap"),
     tooltip: document.getElementById("tooltip"),
+    advCoverage: document.getElementById("adv-coverage"),
+    advIngestion: document.getElementById("adv-ingestion"),
+    advPolicy: document.getElementById("adv-policy"),
+    advLineage: document.getElementById("adv-lineage"),
+    advConcentration: document.getElementById("adv-concentration"),
   };
 
   let graphData = null;
@@ -96,6 +101,22 @@
     return "-";
   }
 
+  function formatBytes(n) {
+    if (typeof n !== "number" || Number.isNaN(n)) return "-";
+    const mb = n / (1024 * 1024);
+    return `${mb.toFixed(2)} MB`;
+  }
+
+  function reportMetric(report, label) {
+    const re = new RegExp(`${label}:\\s*([^\\n]+)`, "i");
+    const m = report.match(re);
+    return m ? m[1].trim() : "-";
+  }
+
+  function listItem(label, value) {
+    return `<li><b>${escapeHtml(label)}:</b> ${escapeHtml(String(value ?? "-"))}</li>`;
+  }
+
   function showConsistencyError(msg) {
     el.consistencyError.style.display = "block";
     el.consistencyError.textContent = msg;
@@ -110,6 +131,54 @@
     el.resultClusters.textContent = String(summary.n_clusters ?? "-");
     el.resultTopSize.textContent = String(summary.top_cluster_size ?? "-");
     el.resultMulti.textContent = String(parseMultiAddressClusters(summary, report));
+  }
+
+  function setAdvancedMetrics(summary, report) {
+    const seed = summary.seed_counts || {};
+    el.advCoverage.innerHTML = [
+      listItem("governance seeds", seed.governance ?? "-"),
+      listItem("control seeds", seed.control ?? "-"),
+      listItem("addresses clustered", summary.n_addresses_clustered ?? "-"),
+      listItem("multi-address clusters", parseMultiAddressClusters(summary, report)),
+      listItem("pagination bias risk", summary.pagination_bias_risk ?? "-"),
+    ].join("");
+
+    const cap = summary.pagination_cap_hits || {};
+    el.advIngestion.innerHTML = [
+      listItem("alchemy calls", summary.alchemy_calls ?? "-"),
+      listItem("is_contract calls", summary.is_contract_calls ?? "-"),
+      listItem("transfer rows inserted", summary.transfers_rows_inserted ?? "-"),
+      listItem("db size", formatBytes(summary.db_size_bytes)),
+      listItem("pagination cap hits", `row=${cap.row_cap ?? 0}, page=${cap.page_cap ?? 0}, peer=${cap.distinct_peer_cap ?? 0}`),
+    ].join("");
+
+    const params = summary.link_params || {};
+    const funded = params.funded_by_policy || {};
+    el.advPolicy.innerHTML = [
+      listItem("policy_profile_id", summary.policy_profile_id ?? "-"),
+      listItem("conservative funded_by", summary.conservative_funded_by_policy_enabled ?? funded.enabled ?? "-"),
+      listItem("fan_out_cap", params.fan_out_cap ?? summary.link_fanout_cap ?? "-"),
+      listItem("min_evidence", params.min_evidence ?? summary.min_evidence ?? "-"),
+      listItem("stable / related threshold", `${summary.stable_threshold ?? "-"} / ${summary.related_threshold ?? "-"}`),
+      listItem("funded_by short-burst", `delta=${funded.short_burst_block_delta ?? "-"}, min_hits=${funded.min_short_burst_hits ?? "-"}`),
+    ].join("");
+
+    const lineage = summary.lineage || {};
+    const counts = lineage.counts || {};
+    el.advLineage.innerHTML = [
+      listItem("enabled", lineage.enabled ?? "-"),
+      listItem("skip_reason", lineage.skip_reason ?? "-"),
+      listItem("previous_run_id", lineage.previous_run_id ?? "-"),
+      listItem("counts", `stable=${counts.stable ?? 0}, related=${counts.related ?? 0}, new=${counts.new ?? 0}, disappeared=${counts.disappeared ?? 0}, total=${counts.total_rows ?? 0}`),
+    ].join("");
+
+    el.advConcentration.innerHTML = [
+      listItem("identifiers per cluster", reportMetric(report, "Identifiers per cluster")),
+      listItem("Nakamoto (>50%)", reportMetric(report, "Nakamoto coefficient \\(>50% of population\\)")),
+      listItem("Gini coefficient", reportMetric(report, "Gini coefficient")),
+      listItem("run_id", summary.run_id ?? "-"),
+      listItem("window", parseWindowFromReport(report)),
+    ].join("");
   }
 
   function topClusters(summary) {
@@ -425,6 +494,7 @@
 
       setHero(summary, report);
       setResultMetrics(summary, report);
+      setAdvancedMetrics(summary, report);
       renderTable(summary);
       renderGraph(summary, graph);
 
