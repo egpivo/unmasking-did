@@ -120,10 +120,7 @@ fn normalize_handle(s: &str) -> String {
 /// lexicographically smallest `did`) drives the attestation's
 /// `source` and `observed_block` fields — the underlying query
 /// orders rows that way for determinism.
-pub async fn extract_did_controller(
-    repo: &Repo,
-    addresses: &[String],
-) -> Result<Vec<Attestation>> {
+pub async fn extract_did_controller(repo: &Repo, addresses: &[String]) -> Result<Vec<Attestation>> {
     use std::collections::HashMap;
 
     let normalized: Vec<String> = addresses.iter().map(|a| a.to_lowercase()).collect();

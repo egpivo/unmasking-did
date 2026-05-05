@@ -49,7 +49,11 @@ impl EnsResolver {
     /// surface as `Err`. Callers in best-effort paths (e.g. `ingest`)
     /// should log on `Err` and continue.
     pub async fn resolve(&self, address: &str) -> Result<Option<EnsRecord>> {
-        let url = format!("{}/{}", self.base_url.trim_end_matches('/'), address.to_lowercase());
+        let url = format!(
+            "{}/{}",
+            self.base_url.trim_end_matches('/'),
+            address.to_lowercase()
+        );
         let resp = self
             .http
             .get(&url)

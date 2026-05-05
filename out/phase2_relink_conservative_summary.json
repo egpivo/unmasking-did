@@ -1,0 +1,162 @@
+{
+  "run_id": "run-1777967119432576",
+  "params_json": "{\"address_count\":1000,\"fan_out_cap\":50,\"funded_by_policy\":{\"enabled\":true,\"min_shared_keys\":2,\"min_short_burst_hits\":2,\"service_fan_out_cap\":50,\"short_burst_block_delta\":5000},\"min_evidence\":1}",
+  "cluster_count": 976,
+  "top_cluster_size": 5,
+  "multi_address_clusters": 13,
+  "top5_clusters": [
+    {
+      "cluster_id": "0x131a2a94de9e350200c81b79002f826657b727ec",
+      "size": 5,
+      "governance": 0,
+      "control": 5,
+      "mixed_gov_control": false,
+      "shared_keys": [
+        "0x3971e11c89b27b7a18fc18b6a88bce8329d85e31",
+        "0x6304541f6b91d1b0508f2ecf4b80fead713c1a22",
+        "0xafbb51edf73390f4181492b5227e99936729d043",
+        "0xd6d92a3e87dd51cabe4197202ce59a3d304f1d18"
+      ]
+    },
+    {
+      "cluster_id": "0x74bf7a1829acbb487d205c0a247c2b5717b0d0fe",
+      "size": 4,
+      "governance": 4,
+      "control": 0,
+      "mixed_gov_control": false,
+      "shared_keys": [
+        "0x2df1c51e09aecf9cacb7bc98cb1742757f163df7",
+        "0x2df1cb019a9b96a55a847ac32ac3f0257f163df7",
+        "0x368e01160c2244b0363a35b3ff0a971e44a89284",
+        "0x47f3487d56e3893e7179ad1185b27c2237a3f5da",
+        "0x99794a30eac50663f79e16cba223e2764f701cd4",
+        "0xfd65811230590c464b3cf71b3bb01b9dfc866ebe"
+      ]
+    },
+    {
+      "cluster_id": "0xc4bc0ea537cc70948fc5965f70a3ff66d8af4ab2",
+      "size": 4,
+      "governance": 0,
+      "control": 4,
+      "mixed_gov_control": false,
+      "shared_keys": [
+        "0x5f24350701c440afc09786b04d8a47eac0f08293",
+        "0x5f2437b705ebf68f1d993b7a9d751d2ac0f08293",
+        "0x5f243877f12bc8fcbd9aa2a4be3fb4aac0f08293",
+        "0xa1fe252d62e9b153a14420f960b5785d00c9037c",
+        "0xf6ee635c28dda95a74ba989807000cbe00317d27"
+      ]
+    },
+    {
+      "cluster_id": "0x01f761805c90bc8abfaf504075afdb87e1e5dc08",
+      "size": 3,
+      "governance": 3,
+      "control": 0,
+      "mixed_gov_control": false,
+      "shared_keys": [
+        "0x214d1950027863f5e1ec6369797d9a51ef1bb66f",
+        "0x30ccf4bbee313fcd19f3e295b3ba2920a24e2f62",
+        "0x49329e0a9f7ea3fe0a4f10d755b711146a8f308d",
+        "0x9a81ce3ecc8fbb604a20b84f4202d87776086a71"
+      ]
+    },
+    {
+      "cluster_id": "0x05790ed5045266591e8b1f254e236ed2c83f29e0",
+      "size": 3,
+      "governance": 3,
+      "control": 0,
+      "mixed_gov_control": false,
+      "shared_keys": [
+        "0x25285854083ce61ef09b94e1125b209d982aa73a",
+        "0x2b790dea1f6c5d72d5c60af0f9cd6834374a964b",
+        "0x473324d750bfd2a635de7fde6131e515d054eacd",
+        "0x4f23e8b71b91242c1c4683dd843ed200de4c7d99",
+        "0x89b2239407d56d680a1551113c0946c8a9cbddea",
+        "0xc567fbb99056dd63640a469ef9523173807d52ec"
+      ]
+    }
+  ],
+  "top_shared_keys_after_filtering": [
+    {
+      "key": "0x3971e11c89b27b7a18fc18b6a88bce8329d85e31",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x6304541f6b91d1b0508f2ecf4b80fead713c1a22",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0xafbb51edf73390f4181492b5227e99936729d043",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0xd6d92a3e87dd51cabe4197202ce59a3d304f1d18",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x2df1c51e09aecf9cacb7bc98cb1742757f163df7",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x2df1cb019a9b96a55a847ac32ac3f0257f163df7",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x368e01160c2244b0363a35b3ff0a971e44a89284",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x47f3487d56e3893e7179ad1185b27c2237a3f5da",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x99794a30eac50663f79e16cba223e2764f701cd4",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0xfd65811230590c464b3cf71b3bb01b9dfc866ebe",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x5f24350701c440afc09786b04d8a47eac0f08293",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x5f2437b705ebf68f1d993b7a9d751d2ac0f08293",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x5f243877f12bc8fcbd9aa2a4be3fb4aac0f08293",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0xa1fe252d62e9b153a14420f960b5785d00c9037c",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0xf6ee635c28dda95a74ba989807000cbe00317d27",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x214d1950027863f5e1ec6369797d9a51ef1bb66f",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x30ccf4bbee313fcd19f3e295b3ba2920a24e2f62",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x49329e0a9f7ea3fe0a4f10d755b711146a8f308d",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x9a81ce3ecc8fbb604a20b84f4202d87776086a71",
+      "clusters_in_top5": 1
+    },
+    {
+      "key": "0x25285854083ce61ef09b94e1125b209d982aa73a",
+      "clusters_in_top5": 1
+    }
+  ],
+  "anomalies": []
+}

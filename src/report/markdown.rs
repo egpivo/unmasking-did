@@ -199,9 +199,7 @@ fn cluster_descriptor(edges: &[&ClusterEdge<'_>]) -> &'static str {
 /// Collect the distinct evidence keys that justified merges within a
 /// single cluster, paired with the set of kinds that emitted each key.
 /// Order is stable: keys appear in (kind, key) sort order.
-fn collect_passing_keys<'a>(
-    edges: &[&'a ClusterEdge<'a>],
-) -> Vec<(&'a str, Vec<EvidenceKind>)> {
+fn collect_passing_keys<'a>(edges: &[&'a ClusterEdge<'a>]) -> Vec<(&'a str, Vec<EvidenceKind>)> {
     let mut by_key: std::collections::BTreeMap<&'a str, std::collections::BTreeSet<EvidenceKind>> =
         std::collections::BTreeMap::new();
     for e in edges {
@@ -313,7 +311,10 @@ mod tests {
         // Summary numbers (3 total addresses across the two clusters)
         assert!(out.contains("Identifiers analyzed: **3**"));
         assert!(out.contains("Inferred clusters: **2**"));
-        assert!(!out.contains("Inferred entities"), "wording cleanup: 'entities' must not appear");
+        assert!(
+            !out.contains("Inferred entities"),
+            "wording cleanup: 'entities' must not appear"
+        );
         assert!(out.contains("Nakamoto coefficient"));
         assert!(out.contains("Gini coefficient: **0.333**"));
         // Cluster heading uses an evidence-aware descriptor and
@@ -345,9 +346,7 @@ mod tests {
         let cluster = ClusterReport {
             cluster_id: alice.into(),
             addresses: vec![alice.into(), bob.into()],
-            shared_evidence_keys: vec![
-                "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0".into(),
-            ],
+            shared_evidence_keys: vec!["0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0".into()],
         };
         let attestations = vec![
             Attestation {
@@ -386,7 +385,10 @@ mod tests {
         // Each shared key gets its evidence-kind annotated in
         // parentheses so readers don't have to guess what a hex
         // string represents.
-        assert!(out.contains("(did_controller)"), "key labels must annotate kind");
+        assert!(
+            out.contains("(did_controller)"),
+            "key labels must annotate kind"
+        );
     }
 
     #[test]
@@ -396,9 +398,7 @@ mod tests {
         let cluster = ClusterReport {
             cluster_id: safe_a.into(),
             addresses: vec![safe_a.into(), safe_b.into()],
-            shared_evidence_keys: vec![
-                "0xeoa00000000000000000000000000000000000000".into(),
-            ],
+            shared_evidence_keys: vec!["0xeoa00000000000000000000000000000000000000".into()],
         };
         let attestations = vec![
             Attestation {

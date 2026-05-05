@@ -130,25 +130,27 @@ mod tests {
             }"#,
         )
         .unwrap();
-        let owners = into_owners("0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1", body, Some(123));
+        let owners = into_owners(
+            "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            body,
+            Some(123),
+        );
         assert_eq!(owners.len(), 2);
         assert!(owners.iter().all(|o| !o.owner_is_safe));
         assert_eq!(owners[0].threshold, Some(2));
         assert_eq!(owners[0].observed_block, Some(123));
         assert_eq!(owners[0].source, "safe-tx-service");
         assert_eq!(
-            owners[0].owner_address,
-            "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0",
+            owners[0].owner_address, "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0",
             "owner addresses must be lowercased before storage"
         );
     }
 
     #[test]
     fn missing_threshold_is_none() {
-        let body: SafeInfoResponse = serde_json::from_str(
-            r#"{ "owners": ["0xabc1234500000000000000000000000000000000"] }"#,
-        )
-        .unwrap();
+        let body: SafeInfoResponse =
+            serde_json::from_str(r#"{ "owners": ["0xabc1234500000000000000000000000000000000"] }"#)
+                .unwrap();
         let owners = into_owners("0xa1a1", body, None);
         assert_eq!(owners.len(), 1);
         assert_eq!(owners[0].threshold, None);

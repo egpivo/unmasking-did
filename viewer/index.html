@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Unmasking Coordination in Arbitrum Governance</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --danger: #dc2626;
+      --good: #15803d;
+      --id: #2563eb;
+      --safe: #d97706;
+      --funded: #dc2626;
+      --ens: #059669;
+      --did: #7c3aed;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.45;
+    }
+    .wrap { max-width: 1240px; margin: 0 auto; padding: 1rem; }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 0.8rem;
+    }
+    h1 { margin: 0 0 0.35rem; font-size: 1.35rem; letter-spacing: -0.02em; }
+    h2 { margin: 0 0 0.45rem; font-size: 1.03rem; }
+    p { margin: 0.2rem 0 0.45rem; }
+    .muted { color: var(--muted); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 0.5rem;
+      margin-top: 0.55rem;
+    }
+    .meta-item {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.45rem 0.55rem;
+      background: #fff;
+    }
+    .meta-item .k {
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .meta-item .v {
+      margin-top: 0.1rem;
+      font-size: 0.84rem;
+      font-weight: 600;
+      word-break: break-all;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 0.6rem;
+      margin-top: 0.45rem;
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.55rem;
+      background: #fff;
+    }
+    .card .k {
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .card .v {
+      font-size: 1.35rem;
+      font-weight: 800;
+      margin-top: 0.1rem;
+    }
+    .danger { color: var(--danger); }
+    .good { color: var(--good); }
+    .rules {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 0.55rem;
+      margin-top: 0.45rem;
+    }
+    .rule {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.6rem;
+      background: #fff;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .mini-compare {
+      margin-top: 0.55rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    #consistency-error {
+      display: none;
+      margin-top: 0.5rem;
+      padding: 0.5rem 0.6rem;
+      border-radius: 8px;
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      color: #991b1b;
+      font-size: 0.8rem;
+    }
+    #graph-wrap {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      min-height: 560px;
+      margin-top: 0.55rem;
+      position: relative;
+      overflow: hidden;
+    }
+    #graph { width: 100%; height: 560px; display: block; }
+    .tooltip {
+      position: absolute;
+      pointer-events: none;
+      font-size: 0.78rem;
+      padding: 0.45rem 0.55rem;
+      background: #111827;
+      color: #f8fafc;
+      border-radius: 8px;
+      transform: translate(8px, 8px);
+      opacity: 0;
+      max-width: 320px;
+      z-index: 4;
+    }
+    .result-note { margin-top: 0.55rem; font-weight: 600; }
+    .split {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 0.75rem;
+      margin-top: 0.55rem;
+    }
+    @media (max-width: 980px) { .split { grid-template-columns: 1fr; } }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 0.45rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-size: 0.69rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    tr.clickable { cursor: pointer; }
+    tr.clickable:hover { background: #f8fafc; }
+    tr.active { background: #eff6ff; }
+    .inspector {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.65rem;
+      background: #fff;
+      min-height: 220px;
+      font-size: 0.8rem;
+    }
+    .boundary {
+      border: 2px solid #fcd34d;
+      background: #fffbeb;
+      color: #92400e;
+      border-radius: 10px;
+      padding: 0.7rem;
+      font-weight: 700;
+      line-height: 1.5;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section id="hero">
+      <h1>Unmasking Coordination in Arbitrum Governance</h1>
+      <p class="muted">Naive funded_by linking over-merges. A conservative policy restores interpretable structure.</p>
+      <div class="meta">
+        <div class="meta-item"><div class="k">run_id</div><div class="v mono" id="hero-run-id">loading…</div></div>
+        <div class="meta-item"><div class="k">chain</div><div class="v" id="hero-chain">Arbitrum</div></div>
+        <div class="meta-item"><div class="k">block window</div><div class="v mono" id="hero-window">loading…</div></div>
+      </div>
+      <div id="consistency-error"></div>
+    </section>
+
+    <section id="problem">
+      <h2>1) Problem: Naive funded_by Failure</h2>
+      <p class="muted">Historical baseline (naive funded_by policy)</p>
+      <div class="cards">
+        <div class="card"><div class="k">top_cluster_size</div><div class="v danger">425</div></div>
+        <div class="card"><div class="k">cluster_count</div><div class="v danger">321</div></div>
+      </div>
+      <p>Shared infrastructure (routers, high-fanout funders) creates artificial connectivity, producing a giant mixed cluster.</p>
+    </section>
+
+    <section id="method">
+      <h2>2) Method: Conservative Policy</h2>
+      <div class="rules">
+        <div class="rule">Single shared funder is not sufficient to merge.</div>
+        <div class="rule">Require ≥2 shared funders + short-burst timing.</div>
+        <div class="rule">Suppress service-like and high-fanout keys.</div>
+      </div>
+      <p class="mini-compare"><span class="mono">Naive: funded_by → merge</span> · <span class="mono">Conservative: funded_by → gated evidence</span></p>
+    </section>
+
+    <section id="result">
+      <h2>3) Result</h2>
+      <div class="cards">
+        <div class="card"><div class="k">cluster_count</div><div class="v good" id="result-clusters">-</div></div>
+        <div class="card"><div class="k">top_cluster_size</div><div class="v good" id="result-top-size">-</div></div>
+        <div class="card"><div class="k">multi_address_clusters</div><div class="v good" id="result-multi">-</div></div>
+      </div>
+      <div id="graph-wrap">
+        <svg id="graph" aria-label="coordination evidence graph"></svg>
+        <div class="tooltip" id="tooltip"></div>
+      </div>
+      <p class="result-note">The giant cluster disappears. Smaller, interpretable clusters emerge.</p>
+    </section>
+
+    <section id="inspect">
+      <h2>4) Interactive Cluster Inspection</h2>
+      <div class="split">
+        <div>
+          <table>
+            <thead>
+              <tr><th>cluster_id</th><th>size</th><th>gov</th><th>control</th></tr>
+            </thead>
+            <tbody id="cluster-table-body"></tbody>
+          </table>
+        </div>
+        <div class="inspector" id="inspector">
+          Click a cluster or graph node to inspect details.
+        </div>
+      </div>
+    </section>
+
+    <section id="boundary">
+      <h2>5) Interpretation Boundary</h2>
+      <div class="boundary">
+        <div>This is not Sybil detection.</div>
+        <div>This is not real-world identity attribution.</div>
+        <div>These clusters represent coordination evidence, not claims about humans or malicious actors.</div>
+      </div>
+    </section>
+  </div>
+
+  <script src="./vendor/d3.v7.min.js"></script>
+  <script src="./index.js"></script>
+</body>
+</html>
+

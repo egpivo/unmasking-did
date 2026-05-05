@@ -95,6 +95,28 @@ graph may diverge from the persisted cluster shape. Re-running
 per-pair edges per run for full historical reproducibility is on
 the M3.5+ backlog.
 
+### Optional: bounded D3 finding graph
+
+For an interactive view of a clustering run with all four evidence
+kinds visible, `export-graph` writes a D3-friendly
+`{ nodes, links, limits }` JSON; the static `viewer/viewer.html`
+page renders it (drag, zoom, hover-tooltips) without any build
+step. Bounded by construction — depth=1, capped node counts,
+fan-out cap on service-like keys. See
+[docs/finding-graph.md](docs/finding-graph.md) (including **Scroll vs
+mainnet** visualization expectations) and the first committed example
+at
+[data/findings/2026-05-01-scroll-dao-safes.graph.json](data/findings/2026-05-01-scroll-dao-safes.graph.json).
+For mainnet-scale DBs, SQL summaries live in
+[`scripts/graph_diag.sql`](scripts/graph_diag.sql).
+
+```bash
+cargo run -- export-graph --out out/graph.json
+# Live DB + viewer (same machine):  cargo run -- serve
+#   → http://127.0.0.1:8080/viewer/graph-explorer.html  (GET /api/graph from SQLite)
+# Static files only:  make serve  →  http://localhost:8000/viewer/graph-explorer.html
+```
+
 `ingest` does three things in one shot, all best-effort:
 
 1. fetches transfers from `alchemy_getAssetTransfers`,
@@ -116,6 +138,12 @@ for testing or to override what the resolvers returned.
 `sqlite://data/unmask.db`). Re-runs hit the cache; the schema enforces
 `UNIQUE (tx_hash, from_addr, to_addr, asset, value)` so repeated ingests
 do not duplicate transfers.
+
+### Arbitrum governance Phase 2 (bounded coordination run)
+
+For the stratified 500+500 seed pipeline, use **`cargo run -- phase2-arbitrum-gov`** (isolated DB and outputs; does not modify seed CSVs). Full runbook, snapshot hash, paths, and language rules: **[docs/run-spec-arbitrum-gov-90d.md](docs/run-spec-arbitrum-gov-90d.md)** (section *Phase 2 CLI (pre-merge validation)*).
+
+**Alchemy:** Phase 2 calls `alchemy_getAssetTransfers` on **Arbitrum**. Prefer **`ARBITRUM_ALCHEMY_API_KEY`** (falls back to **`ALCHEMY_API_KEY`**). The key must be from an Alchemy app that includes **Arbitrum One**; otherwise Alchemy often returns **403 Forbidden** and the run stops. Base URL: **`ARBITRUM_ALCHEMY_BASE_URL`** (default `https://arb-mainnet.g.alchemy.com/v2`). Transfer categories are fixed to `external,erc20` regardless of `ALCHEMY_BASE_URL` / `ALCHEMY_TRANSFER_CATEGORIES`.
 
 ## Entity linking model
 

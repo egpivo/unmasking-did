@@ -203,10 +203,12 @@ pub fn passing_edges<'a>(
                 }
 
                 let pair_strength = atts[i].strength.max(atts[j].strength);
-                let entry = by_pair_kind.entry((lo, hi, kind)).or_insert_with(|| Builder {
-                    keys: Vec::new(),
-                    strength: pair_strength,
-                });
+                let entry = by_pair_kind
+                    .entry((lo, hi, kind))
+                    .or_insert_with(|| Builder {
+                        keys: Vec::new(),
+                        strength: pair_strength,
+                    });
                 if !entry.keys.contains(&key) {
                     entry.keys.push(key);
                 }
@@ -236,7 +238,6 @@ fn canonical_pair<'a>(a: &'a str, b: &'a str) -> (&'a str, &'a str) {
         (b, a)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -343,9 +344,7 @@ mod tests {
         assert_eq!(edges.len(), 1, "expected exactly one merge-passing edge");
         assert_eq!(edges[0].kind, EvidenceKind::SafeOwner);
         assert!(
-            edges
-                .iter()
-                .all(|e| e.kind != EvidenceKind::DidController),
+            edges.iter().all(|e| e.kind != EvidenceKind::DidController),
             "DidController must not appear: no shared controller between members"
         );
     }
@@ -461,6 +460,9 @@ mod tests {
         let clusters = vec![cluster(&[a, b])];
 
         let edges = passing_edges(&attestations, &clusters, 2, 50);
-        assert!(edges.is_empty(), "weak-only must never produce passing edges");
+        assert!(
+            edges.is_empty(),
+            "weak-only must never produce passing edges"
+        );
     }
 }

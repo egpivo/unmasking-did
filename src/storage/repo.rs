@@ -21,6 +21,111 @@ pub struct ClusteringRunSummary {
     pub started_at: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct DatasetRun {
+    pub run_id: String,
+    pub chain: String,
+    pub run_type: String,
+    pub parent_run_id: Option<String>,
+    pub window_start_block: i64,
+    pub window_end_block: i64,
+    pub window_start_ts: Option<String>,
+    pub window_end_ts: Option<String>,
+    pub cadence: String,
+    pub seed_spec_json: String,
+    pub params_json: String,
+    pub input_snapshot_hash: String,
+    pub code_commit: String,
+    pub policy_profile_id: String,
+    pub stable_threshold: f64,
+    pub related_threshold: f64,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DatasetRunSummary {
+    pub run_id: String,
+    pub chain: String,
+    pub run_type: String,
+    pub parent_run_id: Option<String>,
+    pub window_start_block: i64,
+    pub window_end_block: i64,
+    pub cadence: String,
+    pub input_snapshot_hash: String,
+    pub code_commit: String,
+    pub policy_profile_id: String,
+    pub stable_threshold: f64,
+    pub related_threshold: f64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunInputRow {
+    pub input_type: String,
+    pub input_ref: String,
+    pub source: String,
+    pub metadata_json: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunMetricsRow {
+    pub run_id: String,
+    pub num_seed_inputs: i64,
+    pub num_seed_addresses: i64,
+    pub num_addresses_total: i64,
+    pub num_transfers: i64,
+    pub num_evidence_rows: i64,
+    pub num_clusters: i64,
+    pub num_multi_address_clusters: i64,
+    pub top_cluster_size: i64,
+    pub metadata_json: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClusterMetricsRow {
+    pub run_id: String,
+    pub cluster_id: String,
+    pub num_addresses: i64,
+    pub num_identifiers: i64,
+    pub num_evidence_rows: i64,
+    pub num_unique_funders: Option<i64>,
+    pub top_funder: Option<String>,
+    pub top_funder_share: Option<f64>,
+    pub first_funder_shared_count: Option<i64>,
+    pub funding_block_min: Option<i64>,
+    pub funding_block_max: Option<i64>,
+    pub funding_block_span: Option<i64>,
+    pub funding_burst_label: Option<String>,
+    pub shared_safe_owner_count: Option<i64>,
+    pub control_link_density: Option<f64>,
+    pub num_unique_sinks: Option<i64>,
+    pub top_sink: Option<String>,
+    pub top_sink_share: Option<f64>,
+    pub possible_consolidation: Option<bool>,
+    pub coordination_tier: String,
+    pub coordination_reasons_json: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClusterLineageRow {
+    pub run_id_current: Option<String>,
+    pub cluster_id_current: Option<String>,
+    pub run_id_previous: Option<String>,
+    pub cluster_id_previous: Option<String>,
+    pub overlap_count: i64,
+    pub jaccard: f64,
+    pub transition_label: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphExportArtifact {
+    pub run_id: String,
+    pub artifact_type: String,
+    pub path: String,
+    pub sha256: String,
+    pub metadata_json: Option<String>,
+}
+
 pub async fn connect(database_url: &str) -> Result<SqlitePool> {
     let opts = SqliteConnectOptions::from_str(database_url)
         .with_context(|| format!("invalid SQLite URL: {database_url}"))?
@@ -584,14 +689,12 @@ impl Repo {
     }
 
     pub async fn start_clustering_run(&self, run_id: &str, params_json: &str) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO clustering_runs (run_id, params_json) VALUES (?1, ?2)",
-        )
-        .bind(run_id)
-        .bind(params_json)
-        .execute(&self.pool)
-        .await
-        .context("start_clustering_run failed")?;
+        sqlx::query("INSERT INTO clustering_runs (run_id, params_json) VALUES (?1, ?2)")
+            .bind(run_id)
+            .bind(params_json)
+            .execute(&self.pool)
+            .await
+            .context("start_clustering_run failed")?;
         Ok(())
     }
 
@@ -622,6 +725,301 @@ impl Repo {
         }
         tx.commit().await?;
         Ok(())
+    }
+
+    pub async fn start_dataset_run(&self, run: &DatasetRun) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO dataset_runs
+                (run_id, chain, run_type, parent_run_id, window_start_block, window_end_block,
+                 window_start_ts, window_end_ts, cadence, seed_spec_json, params_json,
+                 input_snapshot_hash, code_commit, policy_profile_id, stable_threshold, related_threshold, notes)
+             VALUES
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+        )
+        .bind(&run.run_id)
+        .bind(&run.chain)
+        .bind(&run.run_type)
+        .bind(run.parent_run_id.as_deref())
+        .bind(run.window_start_block)
+        .bind(run.window_end_block)
+        .bind(run.window_start_ts.as_deref())
+        .bind(run.window_end_ts.as_deref())
+        .bind(&run.cadence)
+        .bind(&run.seed_spec_json)
+        .bind(&run.params_json)
+        .bind(&run.input_snapshot_hash)
+        .bind(&run.code_commit)
+        .bind(&run.policy_profile_id)
+        .bind(run.stable_threshold)
+        .bind(run.related_threshold)
+        .bind(run.notes.as_deref())
+        .execute(&self.pool)
+        .await
+        .context("start_dataset_run failed")?;
+        Ok(())
+    }
+
+    pub async fn insert_run_inputs(&self, run_id: &str, inputs: &[RunInputRow]) -> Result<usize> {
+        let mut tx = self.pool.begin().await?;
+        let mut n = 0usize;
+        for i in inputs {
+            let res = sqlx::query(
+                "INSERT INTO run_inputs
+                    (run_id, input_type, input_ref, source, metadata_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .bind(run_id)
+            .bind(&i.input_type)
+            .bind(&i.input_ref)
+            .bind(&i.source)
+            .bind(i.metadata_json.as_deref())
+            .execute(&mut *tx)
+            .await
+            .context("insert_run_inputs row failed")?;
+            n += res.rows_affected() as usize;
+        }
+        tx.commit().await?;
+        Ok(n)
+    }
+
+    pub async fn upsert_run_metrics(&self, row: &RunMetricsRow) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO run_metrics
+                (run_id, num_seed_inputs, num_seed_addresses, num_addresses_total,
+                 num_transfers, num_evidence_rows, num_clusters, num_multi_address_clusters,
+                 top_cluster_size, metadata_json)
+             VALUES
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(run_id) DO UPDATE SET
+                num_seed_inputs = excluded.num_seed_inputs,
+                num_seed_addresses = excluded.num_seed_addresses,
+                num_addresses_total = excluded.num_addresses_total,
+                num_transfers = excluded.num_transfers,
+                num_evidence_rows = excluded.num_evidence_rows,
+                num_clusters = excluded.num_clusters,
+                num_multi_address_clusters = excluded.num_multi_address_clusters,
+                top_cluster_size = excluded.top_cluster_size,
+                metadata_json = excluded.metadata_json,
+                computed_at = datetime('now')",
+        )
+        .bind(&row.run_id)
+        .bind(row.num_seed_inputs)
+        .bind(row.num_seed_addresses)
+        .bind(row.num_addresses_total)
+        .bind(row.num_transfers)
+        .bind(row.num_evidence_rows)
+        .bind(row.num_clusters)
+        .bind(row.num_multi_address_clusters)
+        .bind(row.top_cluster_size)
+        .bind(row.metadata_json.as_deref())
+        .execute(&self.pool)
+        .await
+        .context("upsert_run_metrics failed")?;
+        Ok(())
+    }
+
+    pub async fn upsert_cluster_metrics(&self, row: &ClusterMetricsRow) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO cluster_metrics
+                (run_id, cluster_id, num_addresses, num_identifiers, num_evidence_rows,
+                 num_unique_funders, top_funder, top_funder_share, first_funder_shared_count,
+                 funding_block_min, funding_block_max, funding_block_span, funding_burst_label,
+                 shared_safe_owner_count, control_link_density, num_unique_sinks, top_sink,
+                 top_sink_share, possible_consolidation, coordination_tier,
+                 coordination_reasons_json)
+             VALUES
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                 ?18, ?19, ?20, ?21)
+             ON CONFLICT(run_id, cluster_id) DO UPDATE SET
+                num_addresses = excluded.num_addresses,
+                num_identifiers = excluded.num_identifiers,
+                num_evidence_rows = excluded.num_evidence_rows,
+                num_unique_funders = excluded.num_unique_funders,
+                top_funder = excluded.top_funder,
+                top_funder_share = excluded.top_funder_share,
+                first_funder_shared_count = excluded.first_funder_shared_count,
+                funding_block_min = excluded.funding_block_min,
+                funding_block_max = excluded.funding_block_max,
+                funding_block_span = excluded.funding_block_span,
+                funding_burst_label = excluded.funding_burst_label,
+                shared_safe_owner_count = excluded.shared_safe_owner_count,
+                control_link_density = excluded.control_link_density,
+                num_unique_sinks = excluded.num_unique_sinks,
+                top_sink = excluded.top_sink,
+                top_sink_share = excluded.top_sink_share,
+                possible_consolidation = excluded.possible_consolidation,
+                coordination_tier = excluded.coordination_tier,
+                coordination_reasons_json = excluded.coordination_reasons_json,
+                computed_at = datetime('now')",
+        )
+        .bind(&row.run_id)
+        .bind(&row.cluster_id)
+        .bind(row.num_addresses)
+        .bind(row.num_identifiers)
+        .bind(row.num_evidence_rows)
+        .bind(row.num_unique_funders)
+        .bind(row.top_funder.as_deref())
+        .bind(row.top_funder_share)
+        .bind(row.first_funder_shared_count)
+        .bind(row.funding_block_min)
+        .bind(row.funding_block_max)
+        .bind(row.funding_block_span)
+        .bind(row.funding_burst_label.as_deref())
+        .bind(row.shared_safe_owner_count)
+        .bind(row.control_link_density)
+        .bind(row.num_unique_sinks)
+        .bind(row.top_sink.as_deref())
+        .bind(row.top_sink_share)
+        .bind(
+            row.possible_consolidation
+                .map(|v| if v { 1i64 } else { 0i64 }),
+        )
+        .bind(&row.coordination_tier)
+        .bind(row.coordination_reasons_json.as_deref())
+        .execute(&self.pool)
+        .await
+        .context("upsert_cluster_metrics failed")?;
+        Ok(())
+    }
+
+    pub async fn insert_cluster_lineage_rows(&self, rows: &[ClusterLineageRow]) -> Result<usize> {
+        let mut tx = self.pool.begin().await?;
+        let mut n = 0usize;
+        for row in rows {
+            let res = sqlx::query(
+                "INSERT INTO cluster_lineage
+                    (run_id_current, cluster_id_current, run_id_previous, cluster_id_previous,
+                     overlap_count, jaccard, transition_label)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )
+            .bind(row.run_id_current.as_deref())
+            .bind(row.cluster_id_current.as_deref())
+            .bind(row.run_id_previous.as_deref())
+            .bind(row.cluster_id_previous.as_deref())
+            .bind(row.overlap_count)
+            .bind(row.jaccard)
+            .bind(&row.transition_label)
+            .execute(&mut *tx)
+            .await
+            .context("insert_cluster_lineage_rows row failed")?;
+            n += res.rows_affected() as usize;
+        }
+        tx.commit().await?;
+        Ok(n)
+    }
+
+    pub async fn insert_graph_export_artifacts(
+        &self,
+        rows: &[GraphExportArtifact],
+    ) -> Result<usize> {
+        let mut tx = self.pool.begin().await?;
+        let mut n = 0usize;
+        for row in rows {
+            let res = sqlx::query(
+                "INSERT INTO graph_exports
+                    (run_id, artifact_type, path, sha256, metadata_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .bind(&row.run_id)
+            .bind(&row.artifact_type)
+            .bind(&row.path)
+            .bind(&row.sha256)
+            .bind(row.metadata_json.as_deref())
+            .execute(&mut *tx)
+            .await
+            .context("insert_graph_export_artifacts row failed")?;
+            n += res.rows_affected() as usize;
+        }
+        tx.commit().await?;
+        Ok(n)
+    }
+
+    pub async fn latest_dataset_run_for_chain(
+        &self,
+        chain: &str,
+    ) -> Result<Option<DatasetRunSummary>> {
+        let row = sqlx::query(
+            "SELECT run_id, chain, run_type, parent_run_id, window_start_block, window_end_block,
+                    cadence, input_snapshot_hash, code_commit, policy_profile_id, stable_threshold, related_threshold, created_at
+             FROM dataset_runs
+             WHERE chain = ?1
+             ORDER BY created_at DESC, run_id DESC
+             LIMIT 1",
+        )
+        .bind(chain)
+        .fetch_optional(&self.pool)
+        .await
+        .context("latest_dataset_run_for_chain query failed")?;
+        Ok(row.map(|r| DatasetRunSummary {
+            run_id: r.get("run_id"),
+            chain: r.get("chain"),
+            run_type: r.get("run_type"),
+            parent_run_id: r.get("parent_run_id"),
+            window_start_block: r.get("window_start_block"),
+            window_end_block: r.get("window_end_block"),
+            cadence: r.get("cadence"),
+            input_snapshot_hash: r.get("input_snapshot_hash"),
+            code_commit: r.get("code_commit"),
+            policy_profile_id: r.get("policy_profile_id"),
+            stable_threshold: r.get("stable_threshold"),
+            related_threshold: r.get("related_threshold"),
+            created_at: r.get("created_at"),
+        }))
+    }
+
+    pub async fn latest_dataset_run_for_chain_profile(
+        &self,
+        chain: &str,
+        policy_profile_id: &str,
+    ) -> Result<Option<DatasetRunSummary>> {
+        let row = sqlx::query(
+            "SELECT run_id, chain, run_type, parent_run_id, window_start_block, window_end_block,
+                    cadence, input_snapshot_hash, code_commit, policy_profile_id, stable_threshold, related_threshold, created_at
+             FROM dataset_runs
+             WHERE chain = ?1 AND policy_profile_id = ?2
+             ORDER BY created_at DESC, run_id DESC
+             LIMIT 1",
+        )
+        .bind(chain)
+        .bind(policy_profile_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("latest_dataset_run_for_chain_profile query failed")?;
+        Ok(row.map(|r| DatasetRunSummary {
+            run_id: r.get("run_id"),
+            chain: r.get("chain"),
+            run_type: r.get("run_type"),
+            parent_run_id: r.get("parent_run_id"),
+            window_start_block: r.get("window_start_block"),
+            window_end_block: r.get("window_end_block"),
+            cadence: r.get("cadence"),
+            input_snapshot_hash: r.get("input_snapshot_hash"),
+            code_commit: r.get("code_commit"),
+            policy_profile_id: r.get("policy_profile_id"),
+            stable_threshold: r.get("stable_threshold"),
+            related_threshold: r.get("related_threshold"),
+            created_at: r.get("created_at"),
+        }))
+    }
+
+    pub async fn clusters_for_run_map(&self, run_id: &str) -> Result<HashMap<String, Vec<String>>> {
+        let rows = sqlx::query(
+            "SELECT cluster_id, address
+             FROM entity_clusters
+             WHERE cluster_run_id = ?1
+             ORDER BY cluster_id ASC, address ASC",
+        )
+        .bind(run_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("clusters_for_run_map query failed")?;
+        let mut by: HashMap<String, Vec<String>> = HashMap::new();
+        for r in rows {
+            let cid: String = r.get("cluster_id");
+            let addr: String = r.get("address");
+            by.entry(cid).or_default().push(addr);
+        }
+        Ok(by)
     }
 }
 

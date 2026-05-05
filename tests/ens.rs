@@ -21,7 +21,12 @@ async fn fresh_repo() -> Repo {
     Repo::new(pool)
 }
 
-fn record(addr: &str, name: Option<&str>, twitter: Option<&str>, github: Option<&str>) -> EnsRecord {
+fn record(
+    addr: &str,
+    name: Option<&str>,
+    twitter: Option<&str>,
+    github: Option<&str>,
+) -> EnsRecord {
     EnsRecord {
         address: addr.to_string(),
         name: name.map(str::to_string),
@@ -46,7 +51,11 @@ async fn extract_ens_handle_skips_name_and_emits_per_service() {
 
     let atts = extract_ens_handle(&repo, &[alice.into()]).await.unwrap();
 
-    assert_eq!(atts.len(), 2, "expected one attestation per non-empty handle, no `name` row");
+    assert_eq!(
+        atts.len(),
+        2,
+        "expected one attestation per non-empty handle, no `name` row"
+    );
     assert!(atts.iter().all(|a| a.kind == EvidenceKind::EnsHandle));
     assert!(atts.iter().all(|a| a.strength == Strength::Medium));
     let keys: Vec<&str> = atts.iter().map(|a| a.key.as_str()).collect();
@@ -100,8 +109,12 @@ async fn ens_handle_and_funder_stack_to_meet_min_evidence_2() {
         tx_hash: Some(String::from(tx)),
         asset: Some("ETH".into()),
     };
-    repo.insert_transfer(&t(funder, alice, 100, "0x1")).await.unwrap();
-    repo.insert_transfer(&t(funder, bob, 101, "0x2")).await.unwrap();
+    repo.insert_transfer(&t(funder, alice, 100, "0x1"))
+        .await
+        .unwrap();
+    repo.insert_transfer(&t(funder, bob, 101, "0x2"))
+        .await
+        .unwrap();
     // One twitter edge.
     repo.upsert_ens_record(&record(alice, None, Some("@joseph"), None))
         .await
@@ -118,6 +131,10 @@ async fn ens_handle_and_funder_stack_to_meet_min_evidence_2() {
     let out = link_addresses(&repo, &[alice.into(), bob.into()], 2)
         .await
         .unwrap();
-    assert_eq!(out.clusters.len(), 1, "stacked evidence should clear min_evidence=2");
+    assert_eq!(
+        out.clusters.len(),
+        1,
+        "stacked evidence should clear min_evidence=2"
+    );
     assert_eq!(out.clusters[0].addresses.len(), 2);
 }

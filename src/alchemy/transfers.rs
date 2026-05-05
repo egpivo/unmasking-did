@@ -30,21 +30,16 @@ fn parse_one(v: &Value) -> Result<Transfer> {
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("transfer missing `to`"))?
         .to_lowercase();
-    let value = v
-        .get("value")
-        .and_then(|x| match x {
-            Value::Number(n) => Some(n.to_string()),
-            Value::String(s) => Some(s.clone()),
-            _ => None,
-        });
+    let value = v.get("value").and_then(|x| match x {
+        Value::Number(n) => Some(n.to_string()),
+        Value::String(s) => Some(s.clone()),
+        _ => None,
+    });
     let block_num = v
         .get("blockNum")
         .and_then(Value::as_str)
         .and_then(|s| i64::from_str_radix(s.trim_start_matches("0x"), 16).ok());
-    let tx_hash = v
-        .get("hash")
-        .and_then(Value::as_str)
-        .map(str::to_lowercase);
+    let tx_hash = v.get("hash").and_then(Value::as_str).map(str::to_lowercase);
     let asset = v.get("asset").and_then(Value::as_str).map(str::to_string);
 
     Ok(Transfer {

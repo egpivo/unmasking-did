@@ -1,4 +1,6 @@
-use anyhow::{anyhow, Result};
+use std::path::{Path, PathBuf};
+
+use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -8,12 +10,27 @@ use unmasking_did::alchemy::AlchemyClient;
 use unmasking_did::config::Config;
 use unmasking_did::did::DidDocument;
 use unmasking_did::ens::EnsRecord;
-use unmasking_did::linking::link_and_persist;
+use unmasking_did::eval::{run_eval_suite, AblationMode};
+use unmasking_did::graph_export::{
+    build_graph, build_pairwise_graph, write_graph_json, DEFAULT_FAN_OUT_CAP,
+    DEFAULT_MAX_EVIDENCE_NODES, DEFAULT_MAX_IDENTIFIER_NODES,
+};
+use unmasking_did::ingest_common::{normalize_eth_address, store_safe_owners};
+use unmasking_did::linking::{
+    link_and_persist_with_fanout, FundedByMergePolicy, LinkageParams, FAN_OUT_CAP,
+    FUNDED_BY_BURST_BLOCK_DELTA, FUNDED_BY_MIN_SHARED_KEYS, FUNDED_BY_MIN_SHORT_BURST_HITS,
+};
 use unmasking_did::metrics::{gini, nakamoto_coefficient};
+use unmasking_did::monitoring::lineage::{
+    cluster_snapshots_from_map, compute_cluster_lineage, should_run_lineage, LineageConfig,
+};
+use unmasking_did::phase2_arbitrum_gov::{
+    cleanup_partial_phase2_artifacts, run_phase2_arbitrum_gov, Phase2Paths,
+};
 use unmasking_did::report::{render_dot, render_markdown, DotInputs, ReportInputs};
 use unmasking_did::resolvers::{EnsResolver, SafeResolver};
 use unmasking_did::safe::SafeOwner;
-use unmasking_did::storage::{connect, run_migrations, Repo};
+use unmasking_did::storage::{connect, run_migrations, DatasetRun, Repo};
 
 #[derive(Parser, Debug)]
 #[command(name = "unmasking-did", version, about)]
@@ -41,6 +58,44 @@ enum Command {
         /// address that has been seen by `ingest`.
         #[arg(long, value_delimiter = ',')]
         addresses: Vec<String>,
+        /// Monitoring identity profile; trend comparisons are allowed only
+        /// within the same profile. Defaults from the selected linker policy.
+        #[arg(long)]
+        policy_profile_id: Option<String>,
+        /// Chain label for run metadata.
+        #[arg(long, default_value = "arbitrum")]
+        chain: String,
+        /// Cadence label for run metadata.
+        #[arg(long, default_value = "monthly")]
+        cadence: String,
+        /// Window start block for run metadata.
+        #[arg(long, default_value_t = 0)]
+        window_start_block: i64,
+        /// Window end block for run metadata.
+        #[arg(long, default_value_t = 0)]
+        window_end_block: i64,
+        /// Jaccard threshold for stable lineage.
+        #[arg(long, default_value_t = 0.5)]
+        stable_threshold: f64,
+        /// Jaccard threshold for related lineage.
+        #[arg(long, default_value_t = 0.1)]
+        related_threshold: f64,
+        /// Enable conservative funded_by merge gating.
+        #[arg(long, default_value_t = false)]
+        conservative_funded_by: bool,
+        /// Fan-out threshold for funded_by service-like suppression when
+        /// conservative mode is enabled.
+        #[arg(long, default_value_t = FAN_OUT_CAP)]
+        funded_by_service_fan_out_cap: usize,
+        /// Shared funded_by keys required for funded_by-only merge.
+        #[arg(long, default_value_t = FUNDED_BY_MIN_SHARED_KEYS)]
+        funded_by_min_shared_keys: usize,
+        /// Short-burst hits required for funded_by-only merge.
+        #[arg(long, default_value_t = FUNDED_BY_MIN_SHORT_BURST_HITS)]
+        funded_by_min_short_burst_hits: usize,
+        /// Short-burst delta in blocks for funded_by-only merge.
+        #[arg(long, default_value_t = FUNDED_BY_BURST_BLOCK_DELTA)]
+        funded_by_short_burst_block_delta: i64,
     },
     /// Compute decentralization metrics over the latest persisted
     /// clustering run. Run `link` first; this command does NOT
@@ -90,6 +145,104 @@ enum Command {
         #[arg(long)]
         observed_block: Option<i64>,
     },
+    /// Export a bounded D3-compatible finding graph (`graph.json`)
+    /// from the latest persisted clustering run. Pair with the
+    /// static `viewer/viewer.html` page (a single D3 v7 file) to
+    /// inspect interactively. Bounded by construction: depth = 1,
+    /// max identifier and evidence node counts, fan-out cap on
+    /// service-like keys.
+    ExportGraph {
+        /// Output JSON file path.
+        #[arg(long, default_value = "out/graph.json")]
+        out: String,
+        /// `evidence` — bipartite identifier↔evidence graph (audit / debug).  
+        /// `pairwise` — identifier↔identifier scored linkage edges.
+        #[arg(long, default_value = "evidence")]
+        graph_mode: String,
+        #[arg(long, default_value_t = DEFAULT_MAX_IDENTIFIER_NODES)]
+        max_identifier_nodes: usize,
+        #[arg(long, default_value_t = DEFAULT_MAX_EVIDENCE_NODES)]
+        max_evidence_nodes: usize,
+        #[arg(long, default_value_t = DEFAULT_FAN_OUT_CAP)]
+        fan_out_cap: usize,
+        /// Cap on candidate address pairs enumerated for pairwise mode
+        /// (shared non-service evidence keys only).
+        #[arg(long, default_value_t = 2000)]
+        max_pairwise_links: usize,
+        /// JSON file of [`LinkageParams`]. Defaults to bundled
+        /// `data/linkage_params.default.json` when omitted (pairwise mode only).
+        #[arg(long)]
+        linkage_params: Option<String>,
+    },
+    /// Local HTTP server: latest graph JSON from SQLite (`GET /api/graph`,
+    /// same as `export-graph`) plus static `viewer/`, `out/`, and
+    /// `data/findings/`. Run from the repo root after `link`.
+    Serve {
+        #[arg(long, default_value_t = 8080)]
+        port: u16,
+    },
+    /// Score candidate address pairs from typed evidence using the bundled
+    /// or custom linkage weight JSON. Prints JSON to stdout; optional `--out`
+    /// writes the same payload to a file.
+    ScorePairs {
+        #[arg(long, value_delimiter = ',')]
+        addresses: Vec<String>,
+        #[arg(long, default_value_t = 5000)]
+        max_pairs: usize,
+        #[arg(long)]
+        linkage_params: Option<String>,
+        #[arg(long)]
+        out: Option<String>,
+    },
+    /// Phase 2 — Arbitrum gov stratified seeds: bounded ingest + link +
+    /// coordination report (isolated SQLite DB; does not modify seed CSVs).
+    Phase2ArbitrumGov {
+        #[arg(long, default_value = "data/unmask_arbitrum_gov_v1.db")]
+        database: String,
+        #[arg(
+            long,
+            default_value = "data/seeds/arbitrum_gov_90d_governance_stratified500.csv"
+        )]
+        governance_csv: String,
+        #[arg(
+            long,
+            default_value = "data/seeds/arbitrum_gov_90d_control_stratified500.csv"
+        )]
+        control_csv: String,
+        #[arg(long, default_value = "out/phase1b_arbitrum_gov_seed_quality.json")]
+        phase1b_json: String,
+        #[arg(long, default_value = "out/phase2_arbitrum_gov_report.md")]
+        report_md: String,
+        #[arg(long, default_value = "out/phase2_arbitrum_gov.graph.json")]
+        graph_json: String,
+        #[arg(long, default_value = "out/phase2_arbitrum_gov_summary.json")]
+        summary_json: String,
+        #[arg(long, default_value_t = 1)]
+        min_evidence: usize,
+        /// Remove the SQLite file before running (recommended for a clean run).
+        #[arg(long, default_value_t = false)]
+        overwrite_db: bool,
+        /// Optional newline-separated `0x` addresses to drop from `funded_by`
+        /// evidence (bridges / CEX routers). Raw transfers remain in SQLite.
+        #[arg(long)]
+        funder_denylist_txt: Option<String>,
+    },
+    /// Gold-label evaluation: ablations × pairwise tier × rule-based merge
+    /// vs `same_control` / `different_control` / `uncertain` pairs (CSV).
+    /// Does not fetch chain data — reads `evidence` already in the DB.
+    Eval {
+        /// CSV with columns: address_a, address_b, label, rationale
+        #[arg(long)]
+        gold: String,
+        #[arg(long, default_value_t = 2)]
+        min_evidence: usize,
+        /// `all` to run every preset ablation, or comma-separated modes
+        /// (`safe_owner_only`, `all_evidence`, `funded_by_only`, …).
+        #[arg(long, default_value = "all")]
+        ablation: String,
+        #[arg(long)]
+        linkage_params: Option<String>,
+    },
     /// Manually record one DID document's controller relationship.
     /// When `--controller` differs from `--address`, the relationship
     /// is emitted as STRONG `did_controller` evidence — a single
@@ -118,6 +271,9 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load `.env` when present; never overrides variables already set in the shell.
+    dotenvy::dotenv().ok();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -125,7 +281,10 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let cfg = Config::from_env()?;
+    let cfg = match &cli.command {
+        Command::Phase2ArbitrumGov { .. } => Config::from_env_for_phase2()?,
+        _ => Config::from_env()?,
+    };
 
     let pool = connect(&cfg.database_url).await?;
     run_migrations(&pool).await?;
@@ -136,7 +295,48 @@ async fn main() -> Result<()> {
         Command::Link {
             min_evidence,
             addresses,
-        } => run_link(&repo, addresses, min_evidence).await,
+            policy_profile_id,
+            chain,
+            cadence,
+            window_start_block,
+            window_end_block,
+            stable_threshold,
+            related_threshold,
+            conservative_funded_by,
+            funded_by_service_fan_out_cap,
+            funded_by_min_shared_keys,
+            funded_by_min_short_burst_hits,
+            funded_by_short_burst_block_delta,
+        } => {
+            let effective_policy_profile_id = policy_profile_id.unwrap_or_else(|| {
+                if conservative_funded_by {
+                    "arbitrum_gov_conservative_v1".to_string()
+                } else {
+                    "legacy_funded_by_v1".to_string()
+                }
+            });
+            let funded_by_policy = FundedByMergePolicy {
+                enabled: conservative_funded_by,
+                service_fan_out_cap: funded_by_service_fan_out_cap,
+                min_shared_keys: funded_by_min_shared_keys,
+                min_short_burst_hits: funded_by_min_short_burst_hits,
+                short_burst_block_delta: funded_by_short_burst_block_delta,
+            };
+            run_link(
+                &repo,
+                addresses,
+                min_evidence,
+                &funded_by_policy,
+                &effective_policy_profile_id,
+                &chain,
+                &cadence,
+                window_start_block,
+                window_end_block,
+                stable_threshold,
+                related_threshold,
+            )
+            .await
+        }
         Command::Metrics { threshold } => run_metrics(&repo, threshold).await,
         Command::Report { format, threshold } => run_report(&repo, format, threshold).await,
         Command::AddEnsRecord {
@@ -160,11 +360,86 @@ async fn main() -> Result<()> {
             did,
             observed_block,
         } => run_add_did_document(&repo, address, controller, method, did, observed_block).await,
+        Command::ExportGraph {
+            out,
+            graph_mode,
+            max_identifier_nodes,
+            max_evidence_nodes,
+            fan_out_cap,
+            max_pairwise_links,
+            linkage_params,
+        } => {
+            run_export_graph(
+                &repo,
+                out,
+                graph_mode,
+                max_identifier_nodes,
+                max_evidence_nodes,
+                fan_out_cap,
+                max_pairwise_links,
+                linkage_params,
+            )
+            .await
+        }
+        Command::Serve { port } => unmasking_did::serve::run(repo.clone(), port).await,
+        Command::ScorePairs {
+            addresses,
+            max_pairs,
+            linkage_params,
+            out,
+        } => run_score_pairs(&repo, addresses, max_pairs, linkage_params, out).await,
+        Command::Eval {
+            gold,
+            min_evidence,
+            ablation,
+            linkage_params,
+        } => run_eval(&repo, gold, min_evidence, ablation, linkage_params).await,
+        Command::Phase2ArbitrumGov {
+            database,
+            governance_csv,
+            control_csv,
+            phase1b_json,
+            report_md,
+            graph_json,
+            summary_json,
+            min_evidence,
+            overwrite_db,
+            funder_denylist_txt,
+        } => {
+            let db_url = if database.starts_with("sqlite://") {
+                database
+            } else {
+                format!("sqlite://{database}")
+            };
+            let paths = Phase2Paths {
+                governance_csv: governance_csv.into(),
+                control_csv: control_csv.into(),
+                phase1b_json: phase1b_json.into(),
+                database_url: db_url,
+                report_md: report_md.into(),
+                graph_json: graph_json.into(),
+                summary_json: summary_json.into(),
+                funder_denylist_txt: funder_denylist_txt.map(PathBuf::from),
+            };
+            match run_phase2_arbitrum_gov(&cfg, &paths, min_evidence, overwrite_db).await {
+                Ok(summary) => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!(summary))?
+                    );
+                    Ok(())
+                }
+                Err(e) => {
+                    cleanup_partial_phase2_artifacts(&paths);
+                    Err(e)
+                }
+            }
+        }
     }
 }
 
 async fn run_ingest(cfg: &Config, repo: &Repo, address: &str) -> Result<()> {
-    let address = normalize_address(address)?;
+    let address = normalize_eth_address(address)?;
     info!(%address, "fetching transfers from Alchemy");
 
     let client = AlchemyClient::with_base_url(&cfg.alchemy_base_url, &cfg.alchemy_api_key)
@@ -215,63 +490,25 @@ async fn run_ingest(cfg: &Config, repo: &Repo, address: &str) -> Result<()> {
     Ok(())
 }
 
-async fn store_safe_owners(
+async fn run_link(
     repo: &Repo,
-    client: &AlchemyClient,
-    mut owners: Vec<SafeOwner>,
-) -> Result<String> {
-    // Refine `owner_is_safe` by probing each owner's bytecode. An
-    // address with code is treated as a contract owner (likely Safe)
-    // and excluded from `safe_owner` evidence per project policy.
-    let mut eoa = 0usize;
-    let mut contract = 0usize;
-    let mut unverified = 0usize;
-    for owner in &mut owners {
-        let probe = client.is_contract(&owner.owner_address).await;
-        if let Err(ref e) = probe {
-            warn!(
-                owner = %owner.owner_address,
-                error = %e,
-                "is_contract probe failed; treating owner as contract (conservative — re-run ingest with a working RPC to refine)"
-            );
-            unverified += 1;
-        }
-        owner.owner_is_safe = classify_owner_probe(probe);
-        if owner.owner_is_safe {
-            contract += 1;
-        } else {
-            eoa += 1;
-        }
-        repo.upsert_safe_owner(owner).await?;
-    }
-    Ok(format!(
-        "stored {total} owners ({eoa} EOA, {contract} contract, {unverified} unverified→treated as contract)",
-        total = eoa + contract,
-    ))
-}
-
-/// Map an `is_contract` probe result to the `owner_is_safe` flag.
-///
-/// On probe failure, prefer the false-negative (under-cluster) over the
-/// false-positive (false merge): an unverified owner is marked as
-/// contract-like and dropped from `safe_owner` evidence until a future
-/// ingest with a working RPC can refine. The previous behavior — treat
-/// probe failure as EOA — would have let a flaky RPC silently merge
-/// Safes through what was actually another Safe.
-fn classify_owner_probe(probe: Result<bool>) -> bool {
-    match probe {
-        Ok(is_contract) => is_contract,
-        Err(_) => true,
-    }
-}
-
-async fn run_link(repo: &Repo, addresses: Vec<String>, min_evidence: usize) -> Result<()> {
+    addresses: Vec<String>,
+    min_evidence: usize,
+    funded_by_policy: &FundedByMergePolicy,
+    policy_profile_id: &str,
+    chain: &str,
+    cadence: &str,
+    window_start_block: i64,
+    window_end_block: i64,
+    stable_threshold: f64,
+    related_threshold: f64,
+) -> Result<()> {
     let addresses = if addresses.is_empty() {
         repo.known_addresses().await?
     } else {
         addresses
             .into_iter()
-            .map(|a| normalize_address(&a))
+            .map(|a| normalize_eth_address(&a))
             .collect::<Result<Vec<_>>>()?
     };
 
@@ -281,7 +518,87 @@ async fn run_link(repo: &Repo, addresses: Vec<String>, min_evidence: usize) -> R
         ));
     }
 
-    let (run_id, output) = link_and_persist(repo, &addresses, min_evidence).await?;
+    let (run_id, output) = link_and_persist_with_fanout(
+        repo,
+        &addresses,
+        min_evidence,
+        FAN_OUT_CAP,
+        None,
+        funded_by_policy,
+    )
+    .await?;
+
+    let prev_same_profile = repo
+        .latest_dataset_run_for_chain_profile(chain, policy_profile_id)
+        .await?;
+    let code_commit = std::env::var("GIT_COMMIT").unwrap_or_else(|_| "unknown".to_string());
+    let input_snapshot_hash =
+        std::env::var("INPUT_SNAPSHOT_HASH").unwrap_or_else(|_| "unknown".to_string());
+    let seed_spec_json = serde_json::json!({
+        "address_count": addresses.len(),
+        "selection": if addresses.is_empty() { "known_addresses" } else { "explicit_or_known_addresses" },
+    })
+    .to_string();
+    let params_json = serde_json::json!({
+        "min_evidence": min_evidence,
+        "fan_out_cap": FAN_OUT_CAP,
+        "funded_by_policy": funded_by_policy,
+    })
+    .to_string();
+    let ds_run = DatasetRun {
+        run_id: run_id.clone(),
+        chain: chain.to_string(),
+        run_type: "monitor".to_string(),
+        parent_run_id: prev_same_profile.as_ref().map(|r| r.run_id.clone()),
+        window_start_block,
+        window_end_block,
+        window_start_ts: None,
+        window_end_ts: None,
+        cadence: cadence.to_string(),
+        seed_spec_json,
+        params_json,
+        input_snapshot_hash,
+        code_commit,
+        policy_profile_id: policy_profile_id.to_string(),
+        stable_threshold,
+        related_threshold,
+        notes: None,
+    };
+    repo.start_dataset_run(&ds_run).await?;
+
+    if window_start_block == 0 && window_end_block == 0 {
+        warn!("Lineage skipped because monitoring window is not set.");
+    } else if let Some(prev) = prev_same_profile {
+        if should_run_lineage(
+            chain,
+            policy_profile_id,
+            window_start_block,
+            window_end_block,
+            &prev.chain,
+            &prev.policy_profile_id,
+            prev.window_start_block,
+            prev.window_end_block,
+        ) {
+            let current_map = repo.clusters_for_run_map(&run_id).await?;
+            let previous_map = repo.clusters_for_run_map(&prev.run_id).await?;
+            let lineage = compute_cluster_lineage(
+                &run_id,
+                &prev.run_id,
+                &cluster_snapshots_from_map(&current_map),
+                &cluster_snapshots_from_map(&previous_map),
+                &LineageConfig {
+                    stable_threshold,
+                    related_threshold,
+                },
+            );
+            let _ = repo.insert_cluster_lineage_rows(&lineage).await?;
+        } else {
+            warn!(
+                "Lineage skipped because previous run window is not set or profile/chain mismatch."
+            );
+        }
+    }
+
     let report = serde_json::json!({
         "run_id": run_id,
         "clusters": output.clusters,
@@ -359,8 +676,8 @@ async fn run_report(repo: &Repo, format: String, threshold: f64) -> Result<()> {
             print!("{}", render_markdown(&inputs));
         }
         "json" => {
-            let parsed_params: serde_json::Value =
-                serde_json::from_str(&run.params_json).unwrap_or(serde_json::json!(run.params_json));
+            let parsed_params: serde_json::Value = serde_json::from_str(&run.params_json)
+                .unwrap_or(serde_json::json!(run.params_json));
             let body = serde_json::json!({
                 "run_id": run.run_id,
                 "started_at": run.started_at,
@@ -401,7 +718,7 @@ async fn run_add_ens_record(
     github: Option<String>,
     telegram: Option<String>,
 ) -> Result<()> {
-    let address = normalize_address(&address)?;
+    let address = normalize_eth_address(&address)?;
     if name.is_none() && twitter.is_none() && github.is_none() && telegram.is_none() {
         return Err(anyhow!(
             "at least one of --name / --twitter / --github / --telegram must be provided"
@@ -433,8 +750,8 @@ async fn run_add_safe_owner(
     threshold: Option<i64>,
     observed_block: Option<i64>,
 ) -> Result<()> {
-    let safe_address = normalize_address(&safe)?;
-    let owner_address = normalize_address(&owner)?;
+    let safe_address = normalize_eth_address(&safe)?;
+    let owner_address = normalize_eth_address(&owner)?;
     let record = SafeOwner {
         safe_address: safe_address.clone(),
         owner_address: owner_address.clone(),
@@ -459,6 +776,142 @@ async fn run_add_safe_owner(
     Ok(())
 }
 
+async fn run_export_graph(
+    repo: &Repo,
+    out: String,
+    graph_mode: String,
+    max_identifier_nodes: usize,
+    max_evidence_nodes: usize,
+    fan_out_cap: usize,
+    max_pairwise_links: usize,
+    linkage_params: Option<String>,
+) -> Result<()> {
+    let graph = match graph_mode.as_str() {
+        "pairwise" => {
+            let params = if let Some(ref p) = linkage_params {
+                LinkageParams::from_json_file(Path::new(p))?
+            } else {
+                LinkageParams::bundled_default()?
+            };
+            let src = linkage_params
+                .clone()
+                .unwrap_or_else(|| "bundled data/linkage_params.default.json".to_string());
+            build_pairwise_graph(
+                repo,
+                None,
+                max_identifier_nodes,
+                fan_out_cap,
+                max_pairwise_links,
+                params,
+                &src,
+            )
+            .await?
+        }
+        "evidence" => {
+            build_graph(
+                repo,
+                None,
+                max_identifier_nodes,
+                max_evidence_nodes,
+                fan_out_cap,
+            )
+            .await?
+        }
+        other => {
+            return Err(anyhow!(
+                "unknown --graph-mode {other:?}; expected `evidence` or `pairwise`"
+            ));
+        }
+    };
+    let path = std::path::PathBuf::from(&out);
+    write_graph_json(&graph, &path)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "wrote": out,
+            "graph_mode": graph.graph_mode,
+            "run_id": graph.run.run_id,
+            "nodes": graph.nodes.len(),
+            "links": graph.links.len(),
+            "limits": graph.limits,
+        }))?
+    );
+    Ok(())
+}
+
+async fn run_eval(
+    repo: &Repo,
+    gold: String,
+    min_evidence: usize,
+    ablation: String,
+    linkage_params: Option<String>,
+) -> Result<()> {
+    let params = if let Some(ref p) = linkage_params {
+        LinkageParams::from_json_file(Path::new(p))?
+    } else {
+        LinkageParams::bundled_default()?
+    };
+    let modes = AblationMode::parse_list(&ablation)?;
+    let report = run_eval_suite(repo, Path::new(&gold), &modes, min_evidence, &params).await?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
+async fn run_score_pairs(
+    repo: &Repo,
+    addresses: Vec<String>,
+    max_pairs: usize,
+    linkage_params: Option<String>,
+    out: Option<String>,
+) -> Result<()> {
+    use unmasking_did::linking::{candidate_address_pairs, score_address_pairs};
+
+    let addresses = if addresses.is_empty() {
+        repo.known_addresses().await?
+    } else {
+        addresses
+            .into_iter()
+            .map(|a| normalize_eth_address(&a))
+            .collect::<Result<Vec<_>>>()?
+    };
+    if addresses.is_empty() {
+        return Err(anyhow!(
+            "no addresses — run `ingest` first or pass --addresses"
+        ));
+    }
+
+    let params = if let Some(ref p) = linkage_params {
+        LinkageParams::from_json_file(Path::new(p))?
+    } else {
+        LinkageParams::bundled_default()?
+    };
+    let params_source = linkage_params
+        .clone()
+        .unwrap_or_else(|| "bundled data/linkage_params.default.json".to_string());
+
+    let attestations = repo.attestations_for(&addresses).await?;
+    let pairs = candidate_address_pairs(&addresses, &attestations, max_pairs);
+    let scored = score_address_pairs(&pairs, &attestations, &params);
+
+    let body = serde_json::json!({
+        "linkage_params_source": params_source,
+        "address_count": addresses.len(),
+        "candidate_pair_count": pairs.len(),
+        "pairs": scored,
+    });
+    let text = serde_json::to_string_pretty(&body)?;
+    if let Some(path) = out {
+        let p = Path::new(&path);
+        if let Some(parent) = p.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("mkdir {}", parent.display()))?;
+        }
+        std::fs::write(p, &text).with_context(|| format!("write {}", p.display()))?;
+    }
+    println!("{text}");
+    Ok(())
+}
+
 async fn run_add_did_document(
     repo: &Repo,
     address: String,
@@ -467,8 +920,8 @@ async fn run_add_did_document(
     did: Option<String>,
     observed_block: Option<i64>,
 ) -> Result<()> {
-    let subject = normalize_address(&address)?;
-    let controller = normalize_address(&controller)?;
+    let subject = normalize_eth_address(&address)?;
+    let controller = normalize_eth_address(&controller)?;
     let did = did.unwrap_or_else(|| format!("did:{method}:{subject}"));
     let doc = DidDocument {
         did,
@@ -494,33 +947,20 @@ async fn run_add_did_document(
     Ok(())
 }
 
-fn normalize_address(addr: &str) -> Result<String> {
-    let trimmed = addr.trim();
-    if !trimmed.starts_with("0x") || trimmed.len() != 42 {
-        return Err(anyhow!(
-            "address must be a 0x-prefixed 40-hex-character string: {trimmed}"
-        ));
-    }
-    let hex = &trimmed[2..];
-    if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(anyhow!("address contains non-hex characters: {trimmed}"));
-    }
-    Ok(trimmed.to_lowercase())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unmasking_did::ingest_common::classify_owner_probe;
 
     #[test]
     fn normalize_lowercases_valid_address() {
-        let a = normalize_address("0xAbCdef0123456789AbCdef0123456789aBcDef01").unwrap();
+        let a = normalize_eth_address("0xAbCdef0123456789AbCdef0123456789aBcDef01").unwrap();
         assert_eq!(a, "0xabcdef0123456789abcdef0123456789abcdef01");
     }
 
     #[test]
     fn normalize_rejects_short_address() {
-        assert!(normalize_address("0x1234").is_err());
+        assert!(normalize_eth_address("0x1234").is_err());
     }
 
     #[test]

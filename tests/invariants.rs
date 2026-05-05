@@ -61,8 +61,20 @@ async fn weak_only_does_not_merge_even_with_many_edges() {
     let weak_pairs = ["t1", "t2", "t3", "t4", "t5"];
     let mut atts = Vec::new();
     for (i, k) in weak_pairs.iter().enumerate() {
-        atts.push(att(a, EvidenceKind::FundedBy, k, Strength::Weak, &format!("a{i}")));
-        atts.push(att(b, EvidenceKind::FundedBy, k, Strength::Weak, &format!("b{i}")));
+        atts.push(att(
+            a,
+            EvidenceKind::FundedBy,
+            k,
+            Strength::Weak,
+            &format!("a{i}"),
+        ));
+        atts.push(att(
+            b,
+            EvidenceKind::FundedBy,
+            k,
+            Strength::Weak,
+            &format!("b{i}"),
+        ));
     }
     repo.insert_attestations(&atts).await.unwrap();
 
@@ -88,7 +100,13 @@ async fn fan_out_cap_skips_service_like_keys() {
     let mut atts = Vec::with_capacity(51);
     for i in 0..51u32 {
         let a = format!("0x{:040x}", i + 1);
-        atts.push(att(&a, EvidenceKind::FundedBy, funder, Strength::Medium, "x"));
+        atts.push(att(
+            &a,
+            EvidenceKind::FundedBy,
+            funder,
+            Strength::Medium,
+            "x",
+        ));
         addrs.push(a);
     }
     repo.insert_attestations(&atts).await.unwrap();
@@ -121,7 +139,10 @@ async fn cluster_id_is_min_address_and_stable() {
     let r2 = cluster_from_evidence(&repo, &[b.into(), a.into()], 1)
         .await
         .unwrap();
-    assert_eq!(r1.clusters[0].cluster_id, a, "cluster_id must equal min(address)");
+    assert_eq!(
+        r1.clusters[0].cluster_id, a,
+        "cluster_id must equal min(address)"
+    );
     assert_eq!(
         r1.clusters[0].cluster_id, r2.clusters[0].cluster_id,
         "cluster_id must be stable across input orderings"

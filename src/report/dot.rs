@@ -68,7 +68,12 @@ pub fn render_dot(input: &DotInputs<'_>) -> String {
     // edges between transitively-connected pairs that did not
     // themselves pass the merge rule.
     let (min_evidence, fan_out_cap) = run_params(&input.run.params_json);
-    let edges = passing_edges(input.attestations, input.clusters, min_evidence, fan_out_cap);
+    let edges = passing_edges(
+        input.attestations,
+        input.clusters,
+        min_evidence,
+        fan_out_cap,
+    );
 
     // Index passing edges by cluster index so we can label each
     // cluster by its dominant *contributing* evidence kind.
@@ -90,14 +95,22 @@ pub fn render_dot(input: &DotInputs<'_>) -> String {
 
     for (i, cluster) in clusters.iter().enumerate() {
         out.push_str(&format!("    subgraph cluster_{i} {{\n"));
-        let descriptor =
-            cluster_descriptor(edges_by_cluster.get(&i).map(|v| v.as_slice()).unwrap_or(&[]));
+        let descriptor = cluster_descriptor(
+            edges_by_cluster
+                .get(&i)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]),
+        );
         out.push_str(&format!(
             "        label=\"{} \\n {} ({} identifier{})\";\n",
             descriptor,
             escape_label(&short_addr(&cluster.cluster_id)),
             cluster.addresses.len(),
-            if cluster.addresses.len() == 1 { "" } else { "s" }
+            if cluster.addresses.len() == 1 {
+                ""
+            } else {
+                "s"
+            }
         ));
         out.push_str("        style=rounded;\n");
         out.push_str("        color=\"#888888\";\n");
@@ -171,7 +184,12 @@ fn edge_label(kind: EvidenceKind, strength: crate::evidence::Strength, keys: &[&
         crate::evidence::Strength::Weak => "weak",
     };
     if keys.len() == 1 {
-        format!("{} | {} | {}", kind.as_str(), strength_lc, short_addr(keys[0]))
+        format!(
+            "{} | {} | {}",
+            kind.as_str(),
+            strength_lc,
+            short_addr(keys[0])
+        )
     } else {
         let noun = match kind {
             EvidenceKind::SafeOwner => "shared owners",
@@ -179,7 +197,13 @@ fn edge_label(kind: EvidenceKind, strength: crate::evidence::Strength, keys: &[&
             EvidenceKind::EnsHandle => "shared handles",
             EvidenceKind::DidController => "shared controllers",
         };
-        format!("{} | {} | {} {}", kind.as_str(), strength_lc, keys.len(), noun)
+        format!(
+            "{} | {} | {} {}",
+            kind.as_str(),
+            strength_lc,
+            keys.len(),
+            noun
+        )
     }
 }
 
@@ -296,8 +320,18 @@ mod tests {
         };
         let mut attestations = Vec::new();
         for owner in owners {
-            attestations.push(att(safe_a, EvidenceKind::SafeOwner, owner, Strength::Medium));
-            attestations.push(att(safe_b, EvidenceKind::SafeOwner, owner, Strength::Medium));
+            attestations.push(att(
+                safe_a,
+                EvidenceKind::SafeOwner,
+                owner,
+                Strength::Medium,
+            ));
+            attestations.push(att(
+                safe_b,
+                EvidenceKind::SafeOwner,
+                owner,
+                Strength::Medium,
+            ));
         }
         let out = render_dot(&DotInputs {
             run: &synth_run(),
@@ -349,7 +383,10 @@ mod tests {
             skipped: &[],
             attestations: &atts_reverse,
         });
-        assert_eq!(a, b, "DOT output must be deterministic across input orderings");
+        assert_eq!(
+            a, b,
+            "DOT output must be deterministic across input orderings"
+        );
     }
 
     #[test]

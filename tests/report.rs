@@ -44,8 +44,12 @@ async fn cluster_round_trip_through_entity_clusters() {
     let alice = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let bob = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-    repo.insert_transfer(&t(funder, alice, 100, "0x1")).await.unwrap();
-    repo.insert_transfer(&t(funder, bob, 101, "0x2")).await.unwrap();
+    repo.insert_transfer(&t(funder, alice, 100, "0x1"))
+        .await
+        .unwrap();
+    repo.insert_transfer(&t(funder, bob, 101, "0x2"))
+        .await
+        .unwrap();
     repo.upsert_ens_record(&EnsRecord {
         address: alice.into(),
         name: Some("alice.eth".into()),
@@ -143,7 +147,10 @@ async fn latest_clustering_run_returns_the_most_recent() {
     assert_ne!(first, second);
 
     let latest = repo.latest_clustering_run().await.unwrap().unwrap();
-    assert_eq!(latest.run_id, second, "latest must be the most recently started run");
+    assert_eq!(
+        latest.run_id, second,
+        "latest must be the most recently started run"
+    );
 
     // Sanity check: the older run's metadata is still queryable.
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM clustering_runs")

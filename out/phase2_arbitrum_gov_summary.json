@@ -1,0 +1,144 @@
+{
+  "database_url": "sqlite://data/unmask_arbitrum_gov_v1.db",
+  "alchemy_base_url_used": "https://arb-mainnet.g.alchemy.com/v2",
+  "arbitrum_alchemy_key_source": "ARBITRUM_ALCHEMY_API_KEY",
+  "safe_tx_service_url_used": "https://safe-transaction-arbitrum.safe.global",
+  "input_snapshot_hash": "9bbba872b5590936fd6ac9cb046e6e85a7eeb315d8b2351d188d69ea285219bb",
+  "chain_notes": "Arbitrum One; coordination and shared-public-signal framing only (no intent or real-world identity attribution).",
+  "seed_counts": {
+    "governance": 500,
+    "control": 500,
+    "total": 1000
+  },
+  "alchemy_calls": 1988,
+  "is_contract_calls": 15,
+  "transfers_rows_inserted": 14101,
+  "pagination_cap_hits": {
+    "row_cap": 18,
+    "page_cap": 0,
+    "distinct_peer_cap": 2
+  },
+  "pagination_bias_risk": false,
+  "db_size_bytes": 10657792,
+  "db_size_stopped": false,
+  "link_fanout_cap": 1000,
+  "min_evidence": 1,
+  "run_id": "run-1777967119432576",
+  "n_clusters": 976,
+  "n_addresses_clustered": 1000,
+  "top_clusters": [
+    {
+      "cluster_id": "0x131a2a94de9e350200c81b79002f826657b727ec",
+      "size": 5,
+      "coordination_tier": "multi_identifier_coordination_control_only",
+      "shared_evidence_keys": [
+        "0x3971e11c89b27b7a18fc18b6a88bce8329d85e31",
+        "0x6304541f6b91d1b0508f2ecf4b80fead713c1a22",
+        "0xafbb51edf73390f4181492b5227e99936729d043",
+        "0xd6d92a3e87dd51cabe4197202ce59a3d304f1d18"
+      ],
+      "governance_count": 0,
+      "control_count": 5
+    },
+    {
+      "cluster_id": "0x74bf7a1829acbb487d205c0a247c2b5717b0d0fe",
+      "size": 4,
+      "coordination_tier": "multi_identifier_coordination_governance_only",
+      "shared_evidence_keys": [
+        "0x2df1c51e09aecf9cacb7bc98cb1742757f163df7",
+        "0x2df1cb019a9b96a55a847ac32ac3f0257f163df7",
+        "0x368e01160c2244b0363a35b3ff0a971e44a89284",
+        "0x47f3487d56e3893e7179ad1185b27c2237a3f5da",
+        "0x99794a30eac50663f79e16cba223e2764f701cd4",
+        "0xfd65811230590c464b3cf71b3bb01b9dfc866ebe"
+      ],
+      "governance_count": 4,
+      "control_count": 0
+    },
+    {
+      "cluster_id": "0xc4bc0ea537cc70948fc5965f70a3ff66d8af4ab2",
+      "size": 4,
+      "coordination_tier": "multi_identifier_coordination_control_only",
+      "shared_evidence_keys": [
+        "0x5f24350701c440afc09786b04d8a47eac0f08293",
+        "0x5f2437b705ebf68f1d993b7a9d751d2ac0f08293",
+        "0x5f243877f12bc8fcbd9aa2a4be3fb4aac0f08293",
+        "0xa1fe252d62e9b153a14420f960b5785d00c9037c",
+        "0xf6ee635c28dda95a74ba989807000cbe00317d27"
+      ],
+      "governance_count": 0,
+      "control_count": 4
+    },
+    {
+      "cluster_id": "0x01f761805c90bc8abfaf504075afdb87e1e5dc08",
+      "size": 3,
+      "coordination_tier": "multi_identifier_coordination_governance_only",
+      "shared_evidence_keys": [
+        "0x214d1950027863f5e1ec6369797d9a51ef1bb66f",
+        "0x30ccf4bbee313fcd19f3e295b3ba2920a24e2f62",
+        "0x49329e0a9f7ea3fe0a4f10d755b711146a8f308d",
+        "0x9a81ce3ecc8fbb604a20b84f4202d87776086a71"
+      ],
+      "governance_count": 3,
+      "control_count": 0
+    },
+    {
+      "cluster_id": "0x05790ed5045266591e8b1f254e236ed2c83f29e0",
+      "size": 3,
+      "coordination_tier": "multi_identifier_coordination_governance_only",
+      "shared_evidence_keys": [
+        "0x25285854083ce61ef09b94e1125b209d982aa73a",
+        "0x2b790dea1f6c5d72d5c60af0f9cd6834374a964b",
+        "0x473324d750bfd2a635de7fde6131e515d054eacd",
+        "0x4f23e8b71b91242c1c4683dd843ed200de4c7d99",
+        "0x89b2239407d56d680a1551113c0946c8a9cbddea",
+        "0xc567fbb99056dd63640a469ef9523173807d52ec"
+      ],
+      "governance_count": 3,
+      "control_count": 0
+    }
+  ],
+  "anomalies": [],
+  "policy_profile_id": "arbitrum_gov_conservative_v1",
+  "stable_threshold": 0.5,
+  "related_threshold": 0.1,
+  "lineage": {
+    "enabled": false,
+    "skip_reason": "No prior same-profile run available; lineage not computed for this run.",
+    "previous_run_id": null,
+    "counts": {
+      "stable": 0,
+      "related": 0,
+      "new": 0,
+      "disappeared": 0,
+      "total_rows": 0
+    }
+  },
+  "top_cluster_size": 5,
+  "conservative_funded_by_policy_enabled": true,
+  "link_params": {
+    "min_evidence": 1,
+    "fan_out_cap": 50,
+    "funded_by_policy": {
+      "enabled": true,
+      "min_shared_keys": 2,
+      "min_short_burst_hits": 2,
+      "service_fan_out_cap": 50,
+      "short_burst_block_delta": 5000
+    }
+  },
+  "top_clusters_compact": [
+    {
+      "cluster_id": "0x131a2a94de9e350200c81b79002f826657b727ec",
+      "size": 5
+    },
+    {
+      "cluster_id": "0x74bf7a1829acbb487d205c0a247c2b5717b0d0fe",
+      "size": 4
+    },
+    {
+      "cluster_id": "0xc4bc0ea537cc70948fc5965f70a3ff66d8af4ab2",
+      "size": 4
+    }
+  ]
+}

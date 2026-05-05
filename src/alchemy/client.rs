@@ -7,6 +7,25 @@ use super::transfers::{parse_transfers, Transfer};
 
 pub const DEFAULT_ALCHEMY_BASE_URL: &str = "https://eth-mainnet.g.alchemy.com/v2";
 const PAGE_SIZE_HEX: &str = "0x3e8"; // 1000, the Alchemy max per request
+/// Hard cap on `alchemy_getAssetTransfers` pagination per address ingest.
+/// Hot contracts (e.g. ENS registrar controllers) can otherwise page for hours.
+const MAX_TRANSFER_PAGES: usize = 60;
+
+/// Result of a bounded `alchemy_getAssetTransfers` pull for Phase-2 style
+/// one-hop caches (windowed, capped pages / rows / distinct peers).
+#[derive(Debug, Clone, Default)]
+pub struct BoundedTransferFetch {
+    pub transfers: Vec<Transfer>,
+    pub alchemy_calls: u64,
+    pub pages_fetched: usize,
+    pub stopped_early_distinct_peers: bool,
+    pub stopped_early_row_cap: bool,
+    pub stopped_early_page_cap: bool,
+}
+
+fn hex_block_u64(n: u64) -> String {
+    format!("0x{:x}", n)
+}
 
 /// Default `category` filter for `alchemy_getAssetTransfers`. Valid on
 /// Ethereum mainnet and Polygon; the `internal` category is rejected on
@@ -85,7 +104,10 @@ impl AlchemyClient {
     /// project's "EOA owners only" rule).
     pub async fn is_contract(&self, address: &str) -> Result<bool> {
         let result = self
-            .call("eth_getCode", &[serde_json::json!(address), serde_json::json!("latest")])
+            .call(
+                "eth_getCode",
+                &[serde_json::json!(address), serde_json::json!("latest")],
+            )
             .await?;
         let code = result
             .as_str()
@@ -95,39 +117,158 @@ impl AlchemyClient {
     }
 
     pub async fn get_asset_transfers(&self, to_address: &str) -> Result<Vec<Transfer>> {
-        let mut all = Vec::new();
-        let mut page_key: Option<String> = None;
-        loop {
-            let mut params = serde_json::json!({
-                "fromBlock": "0x0",
-                "toBlock": "latest",
-                "toAddress": to_address,
-                "category": self.transfer_categories,
-                "withMetadata": false,
-                "excludeZeroValue": true,
-                "maxCount": PAGE_SIZE_HEX,
-            });
-            if let Some(ref pk) = page_key {
-                params["pageKey"] = Value::String(pk.clone());
+        Ok(self
+            .get_asset_transfers_bounded(
+                to_address,
+                None,
+                None,
+                Some("toAddress"),
+                MAX_TRANSFER_PAGES,
+                usize::MAX,
+                None,
+            )
+            .await?
+            .transfers)
+    }
+
+    /// Windowed, capped `alchemy_getAssetTransfers` for a single address.
+    ///
+    /// `direction`: `"toAddress"` (incoming), `"fromAddress"` (outgoing), or
+    /// run both when `None` (merges and de-duplicates by tx/from/to/asset/value).
+    ///
+    /// Stops when any cap trips: `max_pages` per direction leg, `max_rows`
+    /// total rows appended, or distinct counterparty addresses ≥
+    /// `early_stop_distinct_peers` (evaluated after each page).
+    pub async fn get_asset_transfers_bounded(
+        &self,
+        address: &str,
+        from_block: Option<u64>,
+        to_block: Option<u64>,
+        direction: Option<&str>,
+        max_pages: usize,
+        max_rows: usize,
+        early_stop_distinct_peers: Option<usize>,
+    ) -> Result<BoundedTransferFetch> {
+        let from_hex = from_block
+            .map(hex_block_u64)
+            .unwrap_or_else(|| "0x0".to_string());
+        let to_hex = to_block
+            .map(hex_block_u64)
+            .unwrap_or_else(|| "latest".to_string());
+
+        let legs: Vec<&str> = match direction {
+            Some("toAddress") => vec!["toAddress"],
+            Some("fromAddress") => vec!["fromAddress"],
+            None => vec!["toAddress", "fromAddress"],
+            Some(other) => {
+                return Err(anyhow!(
+                    "invalid direction {other:?}: use toAddress, fromAddress, or None for both"
+                ));
             }
+        };
 
-            let result = self.call("alchemy_getAssetTransfers", &[params]).await?;
-            let transfers = result
-                .get("transfers")
-                .ok_or_else(|| anyhow!("alchemy response missing `transfers` field"))?;
-            let mut batch = parse_transfers(transfers)
-                .context("failed to parse Alchemy transfers payload")?;
-            all.append(&mut batch);
+        let mut out: Vec<Transfer> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut distinct_peers: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let mut alchemy_calls: u64 = 0;
+        let mut stopped_early_distinct_peers = false;
+        let mut stopped_early_row_cap = false;
+        let mut stopped_early_page_cap = false;
+        let mut pages_total: usize = 0;
 
-            page_key = result
-                .get("pageKey")
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            if page_key.is_none() {
-                break;
+        for leg in legs {
+            let mut page_key: Option<String> = None;
+            let mut pages_leg: usize = 0;
+            loop {
+                if out.len() >= max_rows {
+                    stopped_early_row_cap = true;
+                    break;
+                }
+                pages_leg += 1;
+                pages_total += 1;
+                if pages_leg > max_pages {
+                    stopped_early_page_cap = true;
+                    break;
+                }
+
+                let mut params = serde_json::json!({
+                    "fromBlock": from_hex.clone(),
+                    "toBlock": to_hex.clone(),
+                    "category": self.transfer_categories,
+                    "withMetadata": false,
+                    "excludeZeroValue": true,
+                    "maxCount": PAGE_SIZE_HEX,
+                });
+                match leg {
+                    "toAddress" => {
+                        params["toAddress"] = Value::String(address.to_string());
+                    }
+                    "fromAddress" => {
+                        params["fromAddress"] = Value::String(address.to_string());
+                    }
+                    _ => unreachable!(),
+                }
+                if let Some(ref pk) = page_key {
+                    params["pageKey"] = Value::String(pk.clone());
+                }
+
+                alchemy_calls += 1;
+                let result = self.call("alchemy_getAssetTransfers", &[params]).await?;
+                let transfers = result
+                    .get("transfers")
+                    .ok_or_else(|| anyhow!("alchemy response missing `transfers` field"))?;
+                let batch = parse_transfers(transfers)
+                    .context("failed to parse Alchemy transfers payload")?;
+                for t in batch {
+                    let key = format!(
+                        "{}|{}|{}|{}|{}",
+                        t.tx_hash.as_deref().unwrap_or(""),
+                        t.from_addr,
+                        t.to_addr,
+                        t.asset.as_deref().unwrap_or(""),
+                        t.value.as_deref().unwrap_or("")
+                    );
+                    if seen.insert(key) {
+                        let peer = if leg == "toAddress" {
+                            t.from_addr.clone()
+                        } else {
+                            t.to_addr.clone()
+                        };
+                        distinct_peers.insert(peer);
+                        out.push(t);
+                    }
+                    if out.len() >= max_rows {
+                        stopped_early_row_cap = true;
+                        break;
+                    }
+                }
+
+                if let Some(limit) = early_stop_distinct_peers {
+                    if distinct_peers.len() >= limit {
+                        stopped_early_distinct_peers = true;
+                        break;
+                    }
+                }
+
+                page_key = result
+                    .get("pageKey")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                if page_key.is_none() {
+                    break;
+                }
             }
         }
-        Ok(all)
+
+        Ok(BoundedTransferFetch {
+            transfers: out,
+            alchemy_calls,
+            pages_fetched: pages_total,
+            stopped_early_distinct_peers,
+            stopped_early_row_cap,
+            stopped_early_page_cap,
+        })
     }
 
     async fn call<P: Serialize>(&self, method: &str, params: &P) -> Result<Value> {

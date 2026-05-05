@@ -38,17 +38,28 @@ async fn shared_eoa_owner_merges_two_safes() {
     let safe_b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     let eoa = "0xcccccccccccccccccccccccccccccccccccccccc";
 
-    repo.upsert_safe_owner(&edge(safe_a, eoa, false)).await.unwrap();
-    repo.upsert_safe_owner(&edge(safe_b, eoa, false)).await.unwrap();
+    repo.upsert_safe_owner(&edge(safe_a, eoa, false))
+        .await
+        .unwrap();
+    repo.upsert_safe_owner(&edge(safe_b, eoa, false))
+        .await
+        .unwrap();
     repo.upsert_address(safe_a, None).await.unwrap();
     repo.upsert_address(safe_b, None).await.unwrap();
 
     let out = link_addresses(&repo, &[safe_a.into(), safe_b.into()], 1)
         .await
         .unwrap();
-    assert_eq!(out.clusters.len(), 1, "shared EOA owner should merge two Safes");
+    assert_eq!(
+        out.clusters.len(),
+        1,
+        "shared EOA owner should merge two Safes"
+    );
     assert_eq!(out.clusters[0].addresses.len(), 2);
-    assert!(out.clusters[0].shared_evidence_keys.iter().any(|k| k == eoa));
+    assert!(out.clusters[0]
+        .shared_evidence_keys
+        .iter()
+        .any(|k| k == eoa));
 }
 
 #[tokio::test]
@@ -60,8 +71,12 @@ async fn shared_safe_as_owner_does_not_merge() {
     // human-level shared control evidence.
     let parent_safe = "0xdddddddddddddddddddddddddddddddddddddddd";
 
-    repo.upsert_safe_owner(&edge(safe_a, parent_safe, true)).await.unwrap();
-    repo.upsert_safe_owner(&edge(safe_b, parent_safe, true)).await.unwrap();
+    repo.upsert_safe_owner(&edge(safe_a, parent_safe, true))
+        .await
+        .unwrap();
+    repo.upsert_safe_owner(&edge(safe_b, parent_safe, true))
+        .await
+        .unwrap();
     repo.upsert_address(safe_a, None).await.unwrap();
     repo.upsert_address(safe_b, None).await.unwrap();
 
@@ -93,19 +108,31 @@ async fn correcting_owner_to_safe_invalidates_prior_evidence() {
     let safe_b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     let suspect = "0xcccccccccccccccccccccccccccccccccccccccc";
 
-    repo.upsert_safe_owner(&edge(safe_a, suspect, false)).await.unwrap();
-    repo.upsert_safe_owner(&edge(safe_b, suspect, false)).await.unwrap();
+    repo.upsert_safe_owner(&edge(safe_a, suspect, false))
+        .await
+        .unwrap();
+    repo.upsert_safe_owner(&edge(safe_b, suspect, false))
+        .await
+        .unwrap();
     repo.upsert_address(safe_a, None).await.unwrap();
     repo.upsert_address(safe_b, None).await.unwrap();
 
     let first = link_addresses(&repo, &[safe_a.into(), safe_b.into()], 1)
         .await
         .unwrap();
-    assert_eq!(first.clusters.len(), 1, "initial run should merge via shared EOA");
+    assert_eq!(
+        first.clusters.len(),
+        1,
+        "initial run should merge via shared EOA"
+    );
 
     // Correction: the suspected EOA is actually a Safe.
-    repo.upsert_safe_owner(&edge(safe_a, suspect, true)).await.unwrap();
-    repo.upsert_safe_owner(&edge(safe_b, suspect, true)).await.unwrap();
+    repo.upsert_safe_owner(&edge(safe_a, suspect, true))
+        .await
+        .unwrap();
+    repo.upsert_safe_owner(&edge(safe_b, suspect, true))
+        .await
+        .unwrap();
 
     let second = link_addresses(&repo, &[safe_a.into(), safe_b.into()], 1)
         .await
@@ -131,7 +158,9 @@ async fn add_safe_owner_does_not_make_owner_a_clustering_subject() {
 
     // Mirror exactly what `cargo run -- add-safe-owner` does: write
     // the relationship and upsert ONLY the Safe address as a subject.
-    repo.upsert_safe_owner(&edge(safe, owner, false)).await.unwrap();
+    repo.upsert_safe_owner(&edge(safe, owner, false))
+        .await
+        .unwrap();
     repo.upsert_address(safe, None).await.unwrap();
 
     let known = repo.known_addresses().await.unwrap();
@@ -181,9 +210,11 @@ async fn link_only_replaces_attestations_for_addresses_in_its_input() {
 
     let surviving = repo.attestations_for(&[safe_b.into()]).await.unwrap();
     assert!(
-        surviving.iter().any(|a| a.kind == EvidenceKind::DidController
-            && a.strength == Strength::Strong
-            && a.key == controller),
+        surviving
+            .iter()
+            .any(|a| a.kind == EvidenceKind::DidController
+                && a.strength == Strength::Strong
+                && a.key == controller),
         "link_addresses must only touch evidence for addresses in its input set"
     );
 }
@@ -199,8 +230,12 @@ async fn duplicate_input_addresses_do_not_blow_up_unique_constraint() {
     let safe_b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     let eoa = "0xcccccccccccccccccccccccccccccccccccccccc";
 
-    repo.upsert_safe_owner(&edge(safe_a, eoa, false)).await.unwrap();
-    repo.upsert_safe_owner(&edge(safe_b, eoa, false)).await.unwrap();
+    repo.upsert_safe_owner(&edge(safe_a, eoa, false))
+        .await
+        .unwrap();
+    repo.upsert_safe_owner(&edge(safe_b, eoa, false))
+        .await
+        .unwrap();
     repo.upsert_address(safe_a, None).await.unwrap();
     repo.upsert_address(safe_b, None).await.unwrap();
 
@@ -213,7 +248,11 @@ async fn duplicate_input_addresses_do_not_blow_up_unique_constraint() {
     ];
     let out = link_addresses(&repo, &inputs, 1).await.unwrap();
 
-    assert_eq!(out.clusters.len(), 1, "dedup'd input should still merge via shared EOA");
+    assert_eq!(
+        out.clusters.len(),
+        1,
+        "dedup'd input should still merge via shared EOA"
+    );
     assert_eq!(out.clusters[0].addresses.len(), 2);
 }
 
@@ -225,9 +264,15 @@ async fn extract_safe_owner_filters_safe_owners() {
     let eoa2 = "0xdddddddddddddddddddddddddddddddddddddddd";
     let parent_safe = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
-    repo.upsert_safe_owner(&edge(safe, eoa1, false)).await.unwrap();
-    repo.upsert_safe_owner(&edge(safe, eoa2, false)).await.unwrap();
-    repo.upsert_safe_owner(&edge(safe, parent_safe, true)).await.unwrap();
+    repo.upsert_safe_owner(&edge(safe, eoa1, false))
+        .await
+        .unwrap();
+    repo.upsert_safe_owner(&edge(safe, eoa2, false))
+        .await
+        .unwrap();
+    repo.upsert_safe_owner(&edge(safe, parent_safe, true))
+        .await
+        .unwrap();
 
     let atts = extract_safe_owner(&repo, &[safe.into()]).await.unwrap();
     assert_eq!(atts.len(), 2, "Safe-as-owner edges should be excluded");

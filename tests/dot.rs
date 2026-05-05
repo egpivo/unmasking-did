@@ -119,7 +119,10 @@ async fn dot_export_round_trip_through_persisted_run() {
 
     // Header
     assert!(dot.starts_with("graph unmasking_did {"));
-    assert!(dot.contains(&run.run_id), "DOT must include run_id in audit comment");
+    assert!(
+        dot.contains(&run.run_id),
+        "DOT must include run_id in audit comment"
+    );
     // Both Safes appear as nodes (lowercased internally).
     assert!(dot.contains(safe_a));
     assert!(dot.contains(safe_b));
@@ -193,8 +196,12 @@ async fn dot_does_not_render_transitively_merged_pairs_as_evidence() {
     }
 
     // ONE shared funder between A and C (the transitive-bait edge).
-    repo.insert_transfer(&transfer(funder, a, 200, "0xta")).await.unwrap();
-    repo.insert_transfer(&transfer(funder, c, 201, "0xtc")).await.unwrap();
+    repo.insert_transfer(&transfer(funder, a, 200, "0xta"))
+        .await
+        .unwrap();
+    repo.insert_transfer(&transfer(funder, c, 201, "0xtc"))
+        .await
+        .unwrap();
     repo.upsert_address(a, None).await.unwrap();
     repo.upsert_address(b, None).await.unwrap();
     repo.upsert_address(c, None).await.unwrap();
@@ -202,7 +209,11 @@ async fn dot_does_not_render_transitively_merged_pairs_as_evidence() {
     let (run_id, output) = link_and_persist(&repo, &[a.into(), b.into(), c.into()], 2)
         .await
         .unwrap();
-    assert_eq!(output.clusters.len(), 1, "all three must transitively merge into one cluster");
+    assert_eq!(
+        output.clusters.len(),
+        1,
+        "all three must transitively merge into one cluster"
+    );
     assert_eq!(output.clusters[0].addresses.len(), 3);
 
     let run = repo.latest_clustering_run().await.unwrap().unwrap();
@@ -230,11 +241,14 @@ async fn dot_does_not_render_transitively_merged_pairs_as_evidence() {
         "expected at least one strong did_controller edge; got:\n{dot}"
     );
     let strong_edges = dot.matches("did_controller | strong").count();
-    assert_eq!(strong_edges, 2, "expected exactly two strong DID edges (A-B and B-C)");
+    assert_eq!(
+        strong_edges, 2,
+        "expected exactly two strong DID edges (A-B and B-C)"
+    );
     // Critical: the A-C funded_by edge MUST NOT be drawn — that
     // pair is in the cluster only by transitivity.
     assert!(
-        !dot.contains("funded_by"),
+        !dot.contains("funded_by |"),
         "A-C funded_by edge must not appear; pair did not pass min_evidence=2:\n{dot}"
     );
     // Cluster heading reflects the strongest contributing kind

@@ -1,0 +1,40 @@
+{
+  "frozen_window": {
+    "start_block": 428203933,
+    "end_block": 459307198
+  },
+  "query_strategy": "combined",
+  "chunk_size": 200000,
+  "chunk_count": 156,
+  "query_stats": {
+    "total_calls": 4996,
+    "failed_chunks": 0,
+    "retried_chunks": 2812,
+    "retries_attempted": 2812,
+    "split_chunks": 936
+  },
+  "counts": {
+    "voter_seeds": 2760,
+    "proposer_seeds": 2,
+    "governance_unique_after_dedupe": 2760,
+    "control_candidates_before_exclusion": 415299,
+    "control_addresses_after_exclusion": 414803,
+    "control_selected": 150
+  },
+  "governance_seed_bucket": ">800",
+  "deterministic_cap_applied": true,
+  "deterministic_cap_to": 500,
+  "cap_removed_count": 2260,
+  "service_fanout_threshold": 1000,
+  "extreme_service_address_count": 401,
+  "out_files": [
+    "data/seeds/arbitrum_gov_90d_voter.csv",
+    "data/seeds/arbitrum_gov_90d_proposer.csv",
+    "data/seeds/arbitrum_gov_90d_governance_all.csv",
+    "data/seeds/arbitrum_gov_90d_control.csv"
+  ]
+}
+_90d_governance_all.csv",
+    "data/seeds/arbitrum_gov_90d_control.csv"
+  ]
+}

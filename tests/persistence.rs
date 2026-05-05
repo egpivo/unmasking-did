@@ -33,8 +33,12 @@ async fn link_and_persist_writes_full_audit_trail() {
     let alice = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let bob = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-    repo.insert_transfer(&t(funder, alice, 100, "0x1")).await.unwrap();
-    repo.insert_transfer(&t(funder, bob, 101, "0x2")).await.unwrap();
+    repo.insert_transfer(&t(funder, alice, 100, "0x1"))
+        .await
+        .unwrap();
+    repo.insert_transfer(&t(funder, bob, 101, "0x2"))
+        .await
+        .unwrap();
     repo.upsert_address(alice, Some(100)).await.unwrap();
     repo.upsert_address(bob, Some(101)).await.unwrap();
 
@@ -63,13 +67,19 @@ async fn link_and_persist_writes_full_audit_trail() {
             .fetch_one(pool)
             .await
             .unwrap();
-    assert_eq!(cluster_rows, 2, "expected one row per address in the cluster");
+    assert_eq!(
+        cluster_rows, 2,
+        "expected one row per address in the cluster"
+    );
 
     let evidence_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM evidence")
         .fetch_one(pool)
         .await
         .unwrap();
-    assert_eq!(evidence_rows, 2, "expected one funded_by attestation per address");
+    assert_eq!(
+        evidence_rows, 2,
+        "expected one funded_by attestation per address"
+    );
 }
 
 #[tokio::test]

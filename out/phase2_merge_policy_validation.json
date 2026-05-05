@@ -1,0 +1,64 @@
+{
+  "policy": {
+    "funded_by_primary_disabled": true,
+    "funded_by_secondary_rule": "merge only if funded_by-only pair shares >=2 funded_by keys and >=2 of those are short-burst (abs(observed_block delta) <= 5000)",
+    "safe_owner_did_controller_unchanged": true,
+    "raw_transfers_changed": false
+  },
+  "before": {
+    "cluster_count": 321,
+    "top_cluster_size": 425,
+    "multi_address_clusters": 7,
+    "top3": [
+      {
+        "cluster_id": "0x01888ff9106f0675b7e8d2741083343afb713fac",
+        "size": 425,
+        "governance": 239,
+        "control": 186,
+        "mixed_gov_control": true
+      },
+      {
+        "cluster_id": "0x04b980649f32f3a340c8a60192e17f7074e22a28",
+        "size": 224,
+        "governance": 0,
+        "control": 224,
+        "mixed_gov_control": false
+      },
+      {
+        "cluster_id": "0x0084b896401c0ce882116c6a49ee16801253e95e",
+        "size": 20,
+        "governance": 0,
+        "control": 20,
+        "mixed_gov_control": false
+      }
+    ]
+  },
+  "after": {
+    "cluster_count": 953,
+    "top_cluster_size": 23,
+    "multi_address_clusters": 13,
+    "top3": [
+      {
+        "cluster_id": "0x178173627aa2f703e1a4adb549791acee019b283",
+        "size": 23,
+        "governance": 22,
+        "control": 1,
+        "mixed_gov_control": true
+      },
+      {
+        "cluster_id": "0x131a2a94de9e350200c81b79002f826657b727ec",
+        "size": 5,
+        "governance": 0,
+        "control": 5,
+        "mixed_gov_control": false
+      },
+      {
+        "cluster_id": "0x1e283b89954c1eebcc60139f11493c7ad163cf05",
+        "size": 5,
+        "governance": 5,
+        "control": 0,
+        "mixed_gov_control": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,1223 @@
+{
+  "meta": {
+    "db_path": "data/unmask_eval_scroll_v1.db",
+    "pair_count": 36,
+    "address_count": 9,
+    "gold_path": "data/eval/gold_pairs.scroll_bounded_v1.csv",
+    "gold_map": {
+      "0x20fa362323447506d9d0c02483ae97c4e2d6b607|0xd0d05390d922a2c45a70eaa4601600f236c02acc": "same_control",
+      "0x20fa362323447506d9d0c02483ae97c4e2d6b607|0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434": "same_control",
+      "0x20fa362323447506d9d0c02483ae97c4e2d6b607|0x756ed67a0e73dd1ec4facbc307ca79c28d930b20": "same_control",
+      "0x20fa362323447506d9d0c02483ae97c4e2d6b607|0xe47b51a31ad43acb72a224fab4a17999311e2e48": "same_control",
+      "0x20fa362323447506d9d0c02483ae97c4e2d6b607|0xcca54b0916cee2186b47e9709bedcb7041a8f761": "different_control",
+      "0x20fa362323447506d9d0c02483ae97c4e2d6b607|0x558581b0345d986ba5bd6f04efd27e2a5b991320": "same_control",
+      "0x20fa362323447506d9d0c02483ae97c4e2d6b607|0x73506528332becf6121f71ac9aad43646a41994c": "same_control",
+      "0x20fa362323447506d9d0c02483ae97c4e2d6b607|0xbc72d9f10f6626271092764467983122cf15e3f4": "same_control",
+      "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434|0xd0d05390d922a2c45a70eaa4601600f236c02acc": "same_control",
+      "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20|0xd0d05390d922a2c45a70eaa4601600f236c02acc": "same_control",
+      "0xd0d05390d922a2c45a70eaa4601600f236c02acc|0xe47b51a31ad43acb72a224fab4a17999311e2e48": "same_control",
+      "0xcca54b0916cee2186b47e9709bedcb7041a8f761|0xd0d05390d922a2c45a70eaa4601600f236c02acc": "different_control",
+      "0x558581b0345d986ba5bd6f04efd27e2a5b991320|0xd0d05390d922a2c45a70eaa4601600f236c02acc": "same_control",
+      "0x73506528332becf6121f71ac9aad43646a41994c|0xd0d05390d922a2c45a70eaa4601600f236c02acc": "same_control",
+      "0xbc72d9f10f6626271092764467983122cf15e3f4|0xd0d05390d922a2c45a70eaa4601600f236c02acc": "same_control",
+      "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20|0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434": "same_control",
+      "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434|0xe47b51a31ad43acb72a224fab4a17999311e2e48": "same_control",
+      "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434|0xcca54b0916cee2186b47e9709bedcb7041a8f761": "different_control",
+      "0x558581b0345d986ba5bd6f04efd27e2a5b991320|0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434": "same_control",
+      "0x73506528332becf6121f71ac9aad43646a41994c|0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434": "same_control",
+      "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434|0xbc72d9f10f6626271092764467983122cf15e3f4": "same_control",
+      "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20|0xe47b51a31ad43acb72a224fab4a17999311e2e48": "same_control",
+      "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20|0xcca54b0916cee2186b47e9709bedcb7041a8f761": "different_control",
+      "0x558581b0345d986ba5bd6f04efd27e2a5b991320|0x756ed67a0e73dd1ec4facbc307ca79c28d930b20": "same_control",
+      "0x73506528332becf6121f71ac9aad43646a41994c|0x756ed67a0e73dd1ec4facbc307ca79c28d930b20": "same_control",
+      "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20|0xbc72d9f10f6626271092764467983122cf15e3f4": "same_control",
+      "0xcca54b0916cee2186b47e9709bedcb7041a8f761|0xe47b51a31ad43acb72a224fab4a17999311e2e48": "different_control",
+      "0x558581b0345d986ba5bd6f04efd27e2a5b991320|0xe47b51a31ad43acb72a224fab4a17999311e2e48": "same_control",
+      "0x73506528332becf6121f71ac9aad43646a41994c|0xe47b51a31ad43acb72a224fab4a17999311e2e48": "same_control",
+      "0xbc72d9f10f6626271092764467983122cf15e3f4|0xe47b51a31ad43acb72a224fab4a17999311e2e48": "same_control",
+      "0x558581b0345d986ba5bd6f04efd27e2a5b991320|0xcca54b0916cee2186b47e9709bedcb7041a8f761": "different_control",
+      "0x73506528332becf6121f71ac9aad43646a41994c|0xcca54b0916cee2186b47e9709bedcb7041a8f761": "different_control",
+      "0xbc72d9f10f6626271092764467983122cf15e3f4|0xcca54b0916cee2186b47e9709bedcb7041a8f761": "different_control",
+      "0x558581b0345d986ba5bd6f04efd27e2a5b991320|0x73506528332becf6121f71ac9aad43646a41994c": "uncertain",
+      "0x558581b0345d986ba5bd6f04efd27e2a5b991320|0xbc72d9f10f6626271092764467983122cf15e3f4": "uncertain",
+      "0x73506528332becf6121f71ac9aad43646a41994c|0xbc72d9f10f6626271092764467983122cf15e3f4": "uncertain"
+    },
+    "gold_diagnostics": {
+      "gold_pair_count_matched": 36,
+      "counts_by_gold_label": {
+        "same_control": 25,
+        "different_control": 8,
+        "uncertain": 3
+      },
+      "counts_by_recommendation_on_gold": {
+        "insufficient_evidence": 24,
+        "related_only": 2,
+        "control_link_candidate": 10
+      },
+      "confusion_style": [
+        {
+          "gold_label": "same_control",
+          "recommendation": "insufficient_evidence",
+          "count": 14
+        },
+        {
+          "gold_label": "same_control",
+          "recommendation": "control_link_candidate",
+          "count": 10
+        },
+        {
+          "gold_label": "different_control",
+          "recommendation": "insufficient_evidence",
+          "count": 8
+        },
+        {
+          "gold_label": "uncertain",
+          "recommendation": "insufficient_evidence",
+          "count": 2
+        },
+        {
+          "gold_label": "same_control",
+          "recommendation": "related_only",
+          "count": 1
+        },
+        {
+          "gold_label": "uncertain",
+          "recommendation": "related_only",
+          "count": 1
+        }
+      ],
+      "caveat": "Small/curated gold sets; diagnostics are directional only, not statistically definitive."
+    },
+    "summary_diagnostics": {
+      "recommendation_distribution": {
+        "insufficient_evidence": 24,
+        "related_only": 2,
+        "control_link_candidate": 10
+      },
+      "evidence_kind_pair_coverage": {
+        "funded_by": 3,
+        "safe_owner": 10
+      },
+      "pairs_with_no_evidence": 24,
+      "pairs_with_funded_by": 3,
+      "pairs_with_funded_by_only": 2,
+      "pairs_with_safe_owner_present": 10,
+      "pairs_with_did_or_identity_present": 0,
+      "pairs_with_verified_did_present": 0,
+      "insufficient_evidence_with_zero_evidence": 24,
+      "insufficient_evidence_with_nonzero_evidence": 0,
+      "safe_owner_present_as_control_link_candidate": 10,
+      "safe_owner_present_not_control_link_candidate": 0,
+      "funded_by_only_pairs_as_related_only": 2,
+      "max_did_score": 0.0,
+      "temporal_patterns": {
+        "unknown": 25,
+        "long_span": 5,
+        "same_block": 6
+      },
+      "block_span_buckets": {
+        "unknown": 25,
+        "2_long_span_gt_100": 5,
+        "0_same_block": 6
+      },
+      "hub_penalty_summary": {
+        "count": 36,
+        "min": 0.3869,
+        "p25": 0.4479,
+        "median": 1.0,
+        "p75": 1.0,
+        "max": 1.0,
+        "pairs_penalty_lt_0_5": 10,
+        "pairs_penalty_lt_0_75": 12
+      },
+      "recommendation_policy": "semantic_floor_verified_identity_control_event",
+      "short_burst_blocks": 100,
+      "caveat": "Gold pairs are bounded evaluation pairs, not cryptographic DID ground truth."
+    }
+  },
+  "pairs": [
+    {
+      "address_a": "0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "address_b": "0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "address_b": "0x73506528332becf6121f71ac9aad43646a41994c",
+      "has_funded_by": true,
+      "funded_by_count": 1,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {
+        "funded_by": 1
+      },
+      "min_block": 31220451,
+      "max_block": 33544627,
+      "semantic_classes_present": [
+        "event"
+      ],
+      "source_count": 2,
+      "block_span": 2324176,
+      "temporal_pattern": "long_span",
+      "directionality_summary": {
+        "directed": [
+          "funded_by"
+        ],
+        "undirected_or_ambiguous": []
+      },
+      "hub_penalty": 0.6309297535714575,
+      "related_score": 0.0883,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "related_only",
+      "entity_confidence": "weak",
+      "semantic_caveat": "Event/interaction evidence only; not proof of common ownership or control. Hub-like pattern (hub_penalty=0.631) lowers confidence; does not change evidence class."
+    },
+    {
+      "address_a": "0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "address_b": "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": true,
+      "safe_owner_count": 3,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {
+        "safe_owner": 3
+      },
+      "min_block": 30337167,
+      "max_block": 30337167,
+      "semantic_classes_present": [
+        "control"
+      ],
+      "source_count": 1,
+      "block_span": 0,
+      "temporal_pattern": "same_block",
+      "directionality_summary": {
+        "directed": [
+          "safe_owner"
+        ],
+        "undirected_or_ambiguous": []
+      },
+      "hub_penalty": 0.38685280723454163,
+      "related_score": 0.1354,
+      "control_score": 0.2553,
+      "did_score": 0.0,
+      "recommendation": "control_link_candidate",
+      "entity_confidence": "medium_low",
+      "semantic_caveat": "safe_owner is a control relation, not proof of same human/entity. Hub-like pattern (hub_penalty=0.387) lowers confidence; does not change evidence class."
+    },
+    {
+      "address_a": "0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "address_b": "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": true,
+      "safe_owner_count": 3,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {
+        "safe_owner": 3
+      },
+      "min_block": 30337167,
+      "max_block": 30337167,
+      "semantic_classes_present": [
+        "control"
+      ],
+      "source_count": 1,
+      "block_span": 0,
+      "temporal_pattern": "same_block",
+      "directionality_summary": {
+        "directed": [
+          "safe_owner"
+        ],
+        "undirected_or_ambiguous": []
+      },
+      "hub_penalty": 0.38685280723454163,
+      "related_score": 0.1354,
+      "control_score": 0.2553,
+      "did_score": 0.0,
+      "recommendation": "control_link_candidate",
+      "entity_confidence": "medium_low",
+      "semantic_caveat": "safe_owner is a control relation, not proof of same human/entity. Hub-like pattern (hub_penalty=0.387) lowers confidence; does not change evidence class."
+    },
+    {
+      "address_a": "0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "address_b": "0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "address_b": "0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "address_b": "0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": true,
+      "safe_owner_count": 3,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {
+        "safe_owner": 3
+      },
+      "min_block": 30337167,
+      "max_block": 31098210,
+      "semantic_classes_present": [
+        "control"
+      ],
+      "source_count": 1,
+      "block_span": 761043,
+      "temporal_pattern": "long_span",
+      "directionality_summary": {
+        "directed": [
+          "safe_owner"
+        ],
+        "undirected_or_ambiguous": []
+      },
+      "hub_penalty": 0.38685280723454163,
+      "related_score": 0.1354,
+      "control_score": 0.2553,
+      "did_score": 0.0,
+      "recommendation": "control_link_candidate",
+      "entity_confidence": "medium_low",
+      "semantic_caveat": "safe_owner is a control relation, not proof of same human/entity. Hub-like pattern (hub_penalty=0.387) lowers confidence; does not change evidence class."
+    },
+    {
+      "address_a": "0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "address_b": "0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": true,
+      "safe_owner_count": 3,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {
+        "safe_owner": 3
+      },
+      "min_block": 30337167,
+      "max_block": 31348336,
+      "semantic_classes_present": [
+        "control"
+      ],
+      "source_count": 1,
+      "block_span": 1011169,
+      "temporal_pattern": "long_span",
+      "directionality_summary": {
+        "directed": [
+          "safe_owner"
+        ],
+        "undirected_or_ambiguous": []
+      },
+      "hub_penalty": 0.38685280723454163,
+      "related_score": 0.1354,
+      "control_score": 0.2553,
+      "did_score": 0.0,
+      "recommendation": "control_link_candidate",
+      "entity_confidence": "medium_low",
+      "semantic_caveat": "safe_owner is a control relation, not proof of same human/entity. Hub-like pattern (hub_penalty=0.387) lowers confidence; does not change evidence class."
+    },
+    {
+      "address_a": "0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "address_b": "0x73506528332becf6121f71ac9aad43646a41994c",
+      "has_funded_by": true,
+      "funded_by_count": 1,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {
+        "funded_by": 1
+      },
+      "min_block": 14814914,
+      "max_block": 27802345,
+      "semantic_classes_present": [
+        "event"
+      ],
+      "source_count": 2,
+      "block_span": 12987431,
+      "temporal_pattern": "long_span",
+      "directionality_summary": {
+        "directed": [
+          "funded_by"
+        ],
+        "undirected_or_ambiguous": []
+      },
+      "hub_penalty": 0.6309297535714575,
+      "related_score": 0.0883,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "related_only",
+      "entity_confidence": "weak",
+      "semantic_caveat": "Event/interaction evidence only; not proof of common ownership or control. Hub-like pattern (hub_penalty=0.631) lowers confidence; does not change evidence class."
+    },
+    {
+      "address_a": "0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "address_b": "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "address_b": "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "address_b": "0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "address_b": "0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "address_b": "0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "address_b": "0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x73506528332becf6121f71ac9aad43646a41994c",
+      "address_b": "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x73506528332becf6121f71ac9aad43646a41994c",
+      "address_b": "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x73506528332becf6121f71ac9aad43646a41994c",
+      "address_b": "0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x73506528332becf6121f71ac9aad43646a41994c",
+      "address_b": "0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x73506528332becf6121f71ac9aad43646a41994c",
+      "address_b": "0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x73506528332becf6121f71ac9aad43646a41994c",
+      "address_b": "0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "address_b": "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": true,
+      "safe_owner_count": 3,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {
+        "safe_owner": 3
+      },
+      "min_block": null,
+      "max_block": null,
+      "semantic_classes_present": [
+        "control"
+      ],
+      "source_count": 1,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [
+          "safe_owner"
+        ],
+        "undirected_or_ambiguous": []
+      },
+      "hub_penalty": 0.38685280723454163,
+      "related_score": 0.1354,
+      "control_score": 0.2553,
+      "did_score": 0.0,
+      "recommendation": "control_link_candidate",
+      "entity_confidence": "medium_low",
+      "semantic_caveat": "safe_owner is a control relation, not proof of same human/entity. Hub-like pattern (hub_penalty=0.387) lowers confidence; does not change evidence class."
+    },
+    {
+      "address_a": "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "address_b": "0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "address_b": "0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "address_b": "0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": true,
+      "safe_owner_count": 3,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {
+        "safe_owner": 3
+      },
+      "min_block": 31098210,
+      "max_block": 31098210,
+      "semantic_classes_present": [
+        "control"
+      ],
+      "source_count": 1,
+      "block_span": 0,
+      "temporal_pattern": "same_block",
+      "directionality_summary": {
+        "directed": [
+          "safe_owner"
+        ],
+        "undirected_or_ambiguous": []
+      },
+      "hub_penalty": 0.38685280723454163,
+      "related_score": 0.1354,
+      "control_score": 0.2553,
+      "did_score": 0.0,
+      "recommendation": "control_link_candidate",
+      "entity_confidence": "medium_low",
+      "semantic_caveat": "safe_owner is a control relation, not proof of same human/entity. Hub-like pattern (hub_penalty=0.387) lowers confidence; does not change evidence class."
+    },
+    {
+      "address_a": "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "address_b": "0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": true,
+      "safe_owner_count": 3,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {
+        "safe_owner": 3
+      },
+      "min_block": 31348336,
+      "max_block": 31348336,
+      "semantic_classes_present": [
+        "control"
+      ],
+      "source_count": 1,
+      "block_span": 0,
+      "temporal_pattern": "same_block",
+      "directionality_summary": {
+        "directed": [
+          "safe_owner"
+        ],
+        "undirected_or_ambiguous": []
+      },
+      "hub_penalty": 0.38685280723454163,
+      "related_score": 0.1354,
+      "control_score": 0.2553,
+      "did_score": 0.0,
+      "recommendation": "control_link_candidate",
+      "entity_confidence": "medium_low",
+      "semantic_caveat": "safe_owner is a control relation, not proof of same human/entity. Hub-like pattern (hub_penalty=0.387) lowers confidence; does not change evidence class."
+    },
+    {
+      "address_a": "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "address_b": "0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "address_b": "0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "address_b": "0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": true,
+      "safe_owner_count": 3,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {
+        "safe_owner": 3
+      },
+      "min_block": 31098210,
+      "max_block": 31098210,
+      "semantic_classes_present": [
+        "control"
+      ],
+      "source_count": 1,
+      "block_span": 0,
+      "temporal_pattern": "same_block",
+      "directionality_summary": {
+        "directed": [
+          "safe_owner"
+        ],
+        "undirected_or_ambiguous": []
+      },
+      "hub_penalty": 0.38685280723454163,
+      "related_score": 0.1354,
+      "control_score": 0.2553,
+      "did_score": 0.0,
+      "recommendation": "control_link_candidate",
+      "entity_confidence": "medium_low",
+      "semantic_caveat": "safe_owner is a control relation, not proof of same human/entity. Hub-like pattern (hub_penalty=0.387) lowers confidence; does not change evidence class."
+    },
+    {
+      "address_a": "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "address_b": "0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": true,
+      "safe_owner_count": 3,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {
+        "safe_owner": 3
+      },
+      "min_block": 31348336,
+      "max_block": 31348336,
+      "semantic_classes_present": [
+        "control"
+      ],
+      "source_count": 1,
+      "block_span": 0,
+      "temporal_pattern": "same_block",
+      "directionality_summary": {
+        "directed": [
+          "safe_owner"
+        ],
+        "undirected_or_ambiguous": []
+      },
+      "hub_penalty": 0.38685280723454163,
+      "related_score": 0.1354,
+      "control_score": 0.2553,
+      "did_score": 0.0,
+      "recommendation": "control_link_candidate",
+      "entity_confidence": "medium_low",
+      "semantic_caveat": "safe_owner is a control relation, not proof of same human/entity. Hub-like pattern (hub_penalty=0.387) lowers confidence; does not change evidence class."
+    },
+    {
+      "address_a": "0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "address_b": "0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "address_b": "0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "address_b": "0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "address_b": "0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "address_b": "0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "has_funded_by": false,
+      "funded_by_count": 0,
+      "has_safe_owner": false,
+      "safe_owner_count": 0,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {},
+      "source_count": 0,
+      "min_block": null,
+      "max_block": null,
+      "block_span": null,
+      "temporal_pattern": "unknown",
+      "directionality_summary": {
+        "directed": [],
+        "undirected_or_ambiguous": []
+      },
+      "semantic_classes_present": [],
+      "hub_penalty": 1.0,
+      "related_score": 0.0,
+      "control_score": 0.0,
+      "did_score": 0.0,
+      "recommendation": "insufficient_evidence",
+      "entity_confidence": "none",
+      "semantic_caveat": "No usable evidence rows for this pair."
+    },
+    {
+      "address_a": "0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "address_b": "0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "has_funded_by": true,
+      "funded_by_count": 1,
+      "has_safe_owner": true,
+      "safe_owner_count": 3,
+      "identity_count": 0,
+      "verified_count": 0,
+      "evidence_kind_counts": {
+        "funded_by": 1,
+        "safe_owner": 3
+      },
+      "min_block": 31098210,
+      "max_block": 31348336,
+      "semantic_classes_present": [
+        "control",
+        "event"
+      ],
+      "source_count": 3,
+      "block_span": 250126,
+      "temporal_pattern": "long_span",
+      "directionality_summary": {
+        "directed": [
+          "funded_by",
+          "safe_owner"
+        ],
+        "undirected_or_ambiguous": []
+      },
+      "hub_penalty": 0.4478720438187706,
+      "related_score": 0.2195,
+      "control_score": 0.2956,
+      "did_score": 0.0,
+      "recommendation": "control_link_candidate",
+      "entity_confidence": "medium_low",
+      "semantic_caveat": "safe_owner is a control relation, not proof of same human/entity. Hub-like pattern (hub_penalty=0.448) lowers confidence; does not change evidence class."
+    }
+  ]
+}

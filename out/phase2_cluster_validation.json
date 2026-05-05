@@ -1,0 +1,200 @@
+{
+  "target_cluster": "0x01888ff9106f0675b7e8d2741083343afb713fac",
+  "top_shared_funded_by_keys": [
+    {
+      "key": "0xf70da97812cb96acdf810712aa562db8dfa3dbef",
+      "shared_in_cluster": 100,
+      "fanout_full_seed_set": 100,
+      "classification": "high-fanout service-like"
+    },
+    {
+      "key": "0x0000000000000000000000000000000000000000",
+      "shared_in_cluster": 89,
+      "fanout_full_seed_set": 89,
+      "classification": "zero/system"
+    },
+    {
+      "key": "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f",
+      "shared_in_cluster": 55,
+      "fanout_full_seed_set": 55,
+      "classification": "likely service/router (high fanout)"
+    },
+    {
+      "key": "0x63907b07ccd20f967da05002ad1bd84a540bda9c",
+      "shared_in_cluster": 54,
+      "fanout_full_seed_set": 54,
+      "classification": "likely service/router (high fanout)"
+    },
+    {
+      "key": "0x95f59685696cfad5bbf9b4ef0eecd60563d9cc14",
+      "shared_in_cluster": 35,
+      "fanout_full_seed_set": 35,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae",
+      "shared_in_cluster": 33,
+      "fanout_full_seed_set": 33,
+      "classification": "bridge router (LI.FI/Socket)"
+    },
+    {
+      "key": "0x2df1c51e09aecf9cacb7bc98cb1742757f163df7",
+      "shared_in_cluster": 32,
+      "fanout_full_seed_set": 32,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0x99794a30eac50663f79e16cba223e2764f701cd4",
+      "shared_in_cluster": 29,
+      "fanout_full_seed_set": 29,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0x8c826f795466e39acbff1bb4eeeb759609377ba1",
+      "shared_in_cluster": 27,
+      "fanout_full_seed_set": 27,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0x3ef3d8ba38ebe18db133cec108f4d14ce00dd9ae",
+      "shared_in_cluster": 26,
+      "fanout_full_seed_set": 26,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0x2cff890f0378a11913b6129b2e97417a2c302680",
+      "shared_in_cluster": 25,
+      "fanout_full_seed_set": 25,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0x9b64203878f24eb0cdf55c8c6fa7d08ba0cf77e5",
+      "shared_in_cluster": 25,
+      "fanout_full_seed_set": 25,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0xf89d7b9c864f589bbf53a82105107622b35eaa40",
+      "shared_in_cluster": 23,
+      "fanout_full_seed_set": 23,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0x11b3a7e08eb2fdea2745e4cb64648b10b28524a8",
+      "shared_in_cluster": 19,
+      "fanout_full_seed_set": 19,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0xe8cdf27acd73a434d661c84887215f7598e7d0d3",
+      "shared_in_cluster": 19,
+      "fanout_full_seed_set": 19,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0x1e68be052a9a9ff04714582831457a9b319bcafe",
+      "shared_in_cluster": 18,
+      "fanout_full_seed_set": 18,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0x25681ab599b4e2ceea31f8b498052c53fc2d74db",
+      "shared_in_cluster": 17,
+      "fanout_full_seed_set": 17,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0x3931dab967c3e2dbb492fe12460a66d0fe4cc857",
+      "shared_in_cluster": 17,
+      "fanout_full_seed_set": 17,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0xb38e8c17e38363af6ebdcb3dae12e0243582891d",
+      "shared_in_cluster": 17,
+      "fanout_full_seed_set": 17,
+      "classification": "unlabeled"
+    },
+    {
+      "key": "0x11b397a51ea450dce9343a12f9378930b28524a8",
+      "shared_in_cluster": 16,
+      "fanout_full_seed_set": 16,
+      "classification": "unlabeled"
+    }
+  ],
+  "zero_key_present": true,
+  "expanded_denylist_count": 7,
+  "expanded_denylist_sample": [
+    "0x0000000000000000000000000000000000000000",
+    "0x111111125421ca6dc452d289314280a0f8842a65",
+    "0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae",
+    "0x63907b07ccd20f967da05002ad1bd84a540bda9c",
+    "0x8278e011400772f1be24d5474296b3d1133f6eea",
+    "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f",
+    "0xf70da97812cb96acdf810712aa562db8dfa3dbef"
+  ],
+  "before": {
+    "cluster_count": 321,
+    "top_cluster_size": 425,
+    "multi_address_clusters": 7,
+    "top3": [
+      {
+        "cluster_id": "0x01888ff9106f0675b7e8d2741083343afb713fac",
+        "size": 425,
+        "gov": 239,
+        "control": 186,
+        "mixed": true
+      },
+      {
+        "cluster_id": "0x04b980649f32f3a340c8a60192e17f7074e22a28",
+        "size": 224,
+        "gov": 0,
+        "control": 224,
+        "mixed": false
+      },
+      {
+        "cluster_id": "0x0084b896401c0ce882116c6a49ee16801253e95e",
+        "size": 20,
+        "gov": 0,
+        "control": 20,
+        "mixed": false
+      }
+    ]
+  },
+  "after": {
+    "cluster_count": 583,
+    "top_cluster_size": 375,
+    "multi_address_clusters": 9,
+    "top3": [
+      {
+        "cluster_id": "0x01888ff9106f0675b7e8d2741083343afb713fac",
+        "size": 375,
+        "gov": 197,
+        "control": 178,
+        "mixed": true
+      },
+      {
+        "cluster_id": "0x0084b896401c0ce882116c6a49ee16801253e95e",
+        "size": 20,
+        "gov": 0,
+        "control": 20,
+        "mixed": false
+      },
+      {
+        "cluster_id": "0x294461b95bf4628b544b55f50d42f1d40c1eea89",
+        "size": 10,
+        "gov": 0,
+        "control": 10,
+        "mixed": false
+      }
+    ]
+  },
+  "mixing_change_top_cluster": {
+    "before_top_mixed": true,
+    "after_top_mixed": true,
+    "before_top_gov": 239,
+    "before_top_control": 186,
+    "after_top_gov": 197,
+    "after_top_control": 178
+  }
+}

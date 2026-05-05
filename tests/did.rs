@@ -171,11 +171,18 @@ async fn multi_did_same_controller_collapses_to_one_attestation() {
     // extractor must emit exactly one per (subject, controller).
     let alice_atts: Vec<_> = atts.iter().filter(|a| a.address == alice).collect();
     let bob_atts: Vec<_> = atts.iter().filter(|a| a.address == bob).collect();
-    assert_eq!(alice_atts.len(), 1, "alice's two DIDs must collapse to one attestation");
+    assert_eq!(
+        alice_atts.len(),
+        1,
+        "alice's two DIDs must collapse to one attestation"
+    );
     assert_eq!(bob_atts.len(), 1);
 
     // Audit info preserved: both supporting DIDs in payload_json.
-    let payload = alice_atts[0].payload_json.as_ref().expect("payload_json present");
+    let payload = alice_atts[0]
+        .payload_json
+        .as_ref()
+        .expect("payload_json present");
     assert!(payload.contains(&format!("did:ethr:{alice}")));
     assert!(payload.contains(&format!("did:ethr:scroll:{alice}")));
 

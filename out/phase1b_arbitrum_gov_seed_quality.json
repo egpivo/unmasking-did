@@ -1,0 +1,130 @@
+{
+  "input_snapshot_hash": "9bbba872b5590936fd6ac9cb046e6e85a7eeb315d8b2351d188d69ea285219bb",
+  "hash_input": {
+    "phase": "1b",
+    "frozen_window": {
+      "start_block": 428203933,
+      "end_block": 459307198
+    },
+    "stratification": {
+      "n_strata": 10,
+      "sample_size_each_cohort": 500,
+      "ordering_within_stratum": [
+        "first_seen_block",
+        "address_lexicographic"
+      ],
+      "stratum_rule": "equal_block_width_inclusive_window"
+    },
+    "governance_csv_inputs": {
+      "voter_csv": "data/seeds/arbitrum_gov_90d_voter.csv",
+      "voter_sha256": "d216ce12ef20929d4a2bbc8728cac6a860caea840fb83c436fc8fb52eeb34754",
+      "proposer_csv": "data/seeds/arbitrum_gov_90d_proposer.csv",
+      "proposer_sha256": "c2e75b75987631ca64b5f3d86b43366f809adee60f94825c08a85456162281ef",
+      "governance_unique_count": 2760
+    },
+    "control_pool": {
+      "source": "rpc_transfer_replay",
+      "service_fanout_threshold": 1000,
+      "control_chunk_size": 20000,
+      "pool_row_count": 414581,
+      "pool_sha256": "14fc658fa075dc18f86bfc15a3bfa23494d587512ad2f9d4cde5d815f72d3569"
+    }
+  },
+  "query_stats": {
+    "total_calls": 1719,
+    "failed_chunks": 0,
+    "retried_chunks": 137,
+    "retries_attempted": 137,
+    "split_chunks": 13
+  },
+  "governance": {
+    "source_unique_count": 2760,
+    "sample_size": 500,
+    "first_seen_block_min": 435258091,
+    "first_seen_block_max": 456466859,
+    "stratified_meta": {
+      "n_strata": 10,
+      "quota_per_stratum": 50,
+      "per_stratum_selected_first_pass": {
+        "0": 0,
+        "1": 0,
+        "2": 50,
+        "3": 50,
+        "4": 46,
+        "5": 0,
+        "6": 0,
+        "7": 0,
+        "8": 50,
+        "9": 50
+      },
+      "reserve_fill_count": 254
+    },
+    "excludes_earliest_only_cap": true,
+    "pool_per_stratum_counts": {
+      "0": 0,
+      "1": 0,
+      "2": 1067,
+      "3": 447,
+      "4": 46,
+      "5": 0,
+      "6": 0,
+      "7": 0,
+      "8": 123,
+      "9": 1077
+    },
+    "sample_per_stratum_counts_by_first_seen_block": {
+      "0": 0,
+      "1": 0,
+      "2": 304,
+      "3": 50,
+      "4": 46,
+      "5": 0,
+      "6": 0,
+      "7": 0,
+      "8": 50,
+      "9": 50
+    }
+  },
+  "control": {
+    "pool_size_after_exclusions": 414581,
+    "sample_size": 500,
+    "first_seen_block_min": 428203935,
+    "first_seen_block_max": 456208735,
+    "stratified_meta": {
+      "n_strata": 10,
+      "quota_per_stratum": 50,
+      "per_stratum_selected_first_pass": {
+        "0": 50,
+        "1": 50,
+        "2": 50,
+        "3": 50,
+        "4": 50,
+        "5": 50,
+        "6": 50,
+        "7": 50,
+        "8": 50,
+        "9": 50
+      },
+      "reserve_fill_count": 0
+    },
+    "control_pool_excludes_all_governance_identities": true,
+    "governance_exclusion_set_size": 2760,
+    "overlap_governance_sample_and_control_sample": [],
+    "sample_per_stratum_counts_by_first_seen_block": {
+      "0": 50,
+      "1": 50,
+      "2": 50,
+      "3": 50,
+      "4": 50,
+      "5": 50,
+      "6": 50,
+      "7": 50,
+      "8": 50,
+      "9": 50
+    }
+  },
+  "out_files": {
+    "governance": "data/seeds/arbitrum_gov_90d_governance_stratified500.csv",
+    "control": "data/seeds/arbitrum_gov_90d_control_stratified500.csv"
+  }
+}

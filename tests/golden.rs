@@ -123,6 +123,5 @@ fn load_fixture() -> Vec<CanonicalCluster> {
     );
     let raw = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("failed to read fixture {path}: {e}"));
-    serde_json::from_str(&raw)
-        .unwrap_or_else(|e| panic!("failed to parse fixture {path}: {e}"))
+    serde_json::from_str(&raw).unwrap_or_else(|e| panic!("failed to parse fixture {path}: {e}"))
 }

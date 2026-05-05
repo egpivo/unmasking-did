@@ -1,3 +1,5 @@
 pub mod repo;
 
-pub use repo::{connect, run_migrations, ClusteringRunSummary, Repo};
+pub use repo::{
+    connect, run_migrations, ClusterLineageRow, ClusteringRunSummary, DatasetRun, Repo,
+};

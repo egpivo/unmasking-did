@@ -5,8 +5,8 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
 use crate::evidence::{
-    extract_did_controller, extract_ens_handle, extract_funded_by, extract_safe_owner,
-    Attestation, EvidenceKind, Strength,
+    extract_did_controller, extract_ens_handle, extract_funded_by, extract_safe_owner, Attestation,
+    EvidenceKind, Strength,
 };
 use crate::storage::Repo;
 
@@ -16,7 +16,12 @@ use crate::storage::Repo;
 /// signals fan out narrowly, while CEX hot wallets, bridges, batch
 /// distributors, and faucets fan out broadly. Behavioral detection
 /// catches new services that no hardcoded blacklist could anticipate.
-const FAN_OUT_CAP: usize = 50;
+/// Run-level fan-out cap for `(kind, key)` groups. Shared by the rule
+/// linker, graph export, and the pairwise linkage feature builder.
+pub const FAN_OUT_CAP: usize = 50;
+pub const FUNDED_BY_BURST_BLOCK_DELTA: i64 = 5_000;
+pub const FUNDED_BY_MIN_SHARED_KEYS: usize = 2;
+pub const FUNDED_BY_MIN_SHORT_BURST_HITS: usize = 2;
 
 const CEX_BLACKLIST: &[&str] = &[
     // Binance hot wallets
@@ -40,6 +45,41 @@ const CEX_BLACKLIST: &[&str] = &[
 
 pub fn cex_blacklist() -> HashSet<String> {
     CEX_BLACKLIST.iter().map(|s| s.to_string()).collect()
+}
+
+const ALWAYS_SUPPRESSED_FUNDED_BY_KEYS: &[&str] = &[
+    "0x0000000000000000000000000000000000000000", // system/mint semantics
+    "0x111111125421ca6dc452d289314280a0f8842a65", // 1inch router
+    "0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae", // bridge/router
+    "0x2342deb6f5749ef6ce6943a275a1d3e7486f5fbf", // bridge/router variant
+];
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FundedByMergePolicy {
+    pub enabled: bool,
+    pub service_fan_out_cap: usize,
+    pub min_shared_keys: usize,
+    pub min_short_burst_hits: usize,
+    pub short_burst_block_delta: i64,
+}
+
+impl FundedByMergePolicy {
+    pub fn legacy_disabled() -> Self {
+        Self {
+            enabled: false,
+            service_fan_out_cap: FAN_OUT_CAP,
+            min_shared_keys: FUNDED_BY_MIN_SHARED_KEYS,
+            min_short_burst_hits: FUNDED_BY_MIN_SHORT_BURST_HITS,
+            short_burst_block_delta: FUNDED_BY_BURST_BLOCK_DELTA,
+        }
+    }
+}
+
+fn always_suppressed_funded_by_keys() -> HashSet<String> {
+    ALWAYS_SUPPRESSED_FUNDED_BY_KEYS
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -70,8 +110,20 @@ pub struct LinkingOutput {
 
 #[derive(Debug, Clone)]
 struct EdgeLabel {
+    kind: EvidenceKind,
     key: String,
     strength: Strength,
+}
+
+#[derive(Debug, Clone)]
+struct PairStats {
+    total_count: usize,
+    total_max_strength: Strength,
+    keys: Vec<String>,
+    non_funded_count: usize,
+    non_funded_max_strength: Strength,
+    funded_unique_keys: HashSet<String>,
+    funded_short_burst_hits: usize,
 }
 
 /// Backwards-compatible orchestrator: extract funded_by attestations,
@@ -83,7 +135,9 @@ pub async fn cluster_by_funding(
     addresses: &[String],
     min_evidence: usize,
 ) -> Result<Vec<ClusterReport>> {
-    Ok(link_addresses(repo, addresses, min_evidence).await?.clusters)
+    Ok(link_addresses(repo, addresses, min_evidence)
+        .await?
+        .clusters)
 }
 
 /// End-to-end M1 link pass with full audit persistence: opens a
@@ -96,24 +150,57 @@ pub async fn link_and_persist(
     addresses: &[String],
     min_evidence: usize,
 ) -> Result<(String, LinkingOutput)> {
+    link_and_persist_with_fanout(
+        repo,
+        addresses,
+        min_evidence,
+        FAN_OUT_CAP,
+        None,
+        &FundedByMergePolicy::legacy_disabled(),
+    )
+    .await
+}
+
+pub async fn link_and_persist_with_fanout(
+    repo: &Repo,
+    addresses: &[String],
+    min_evidence: usize,
+    fan_out_cap: usize,
+    extra_funder_deny: Option<&HashSet<String>>,
+    funded_by_policy: &FundedByMergePolicy,
+) -> Result<(String, LinkingOutput)> {
     let run_id = generate_run_id();
     let params = serde_json::json!({
         "min_evidence": min_evidence,
         "address_count": addresses.len(),
-        "fan_out_cap": FAN_OUT_CAP,
+        "fan_out_cap": fan_out_cap,
+        "funded_by_policy": funded_by_policy,
     })
     .to_string();
     repo.start_clustering_run(&run_id, &params).await?;
 
-    let output = link_addresses(repo, addresses, min_evidence).await?;
+    let output = link_addresses_with_fanout(
+        repo,
+        addresses,
+        min_evidence,
+        fan_out_cap,
+        extra_funder_deny,
+        funded_by_policy,
+    )
+    .await?;
 
     for cluster in &output.clusters {
         let evidence_json = serde_json::json!({
             "shared_evidence_keys": cluster.shared_evidence_keys,
         })
         .to_string();
-        repo.insert_cluster(&run_id, &cluster.cluster_id, &cluster.addresses, &evidence_json)
-            .await?;
+        repo.insert_cluster(
+            &run_id,
+            &cluster.cluster_id,
+            &cluster.addresses,
+            &evidence_json,
+        )
+        .await?;
     }
     for skipped in &output.skipped_service_keys {
         let kind = EvidenceKind::parse(&skipped.kind).unwrap_or(EvidenceKind::FundedBy);
@@ -142,6 +229,27 @@ pub async fn link_addresses(
     addresses: &[String],
     min_evidence: usize,
 ) -> Result<LinkingOutput> {
+    link_addresses_with_fanout(
+        repo,
+        addresses,
+        min_evidence,
+        FAN_OUT_CAP,
+        None,
+        &FundedByMergePolicy::legacy_disabled(),
+    )
+    .await
+}
+
+/// Same as [`link_addresses`] but with an explicit per-run `(kind, key)`
+/// fan-out cap for service-like key suppression at merge time.
+pub async fn link_addresses_with_fanout(
+    repo: &Repo,
+    addresses: &[String],
+    min_evidence: usize,
+    fan_out_cap: usize,
+    extra_funder_deny: Option<&HashSet<String>>,
+    funded_by_policy: &FundedByMergePolicy,
+) -> Result<LinkingOutput> {
     let blacklist = cex_blacklist();
 
     // Normalize + dedup the input set. Duplicates would otherwise cause
@@ -153,7 +261,10 @@ pub async fn link_addresses(
     normalized.sort();
     normalized.dedup();
 
-    let funded = extract_funded_by(repo, &normalized, &blacklist).await?;
+    let mut funded = extract_funded_by(repo, &normalized, &blacklist).await?;
+    if let Some(deny) = extra_funder_deny {
+        funded.retain(|a| !deny.contains(&a.key));
+    }
     let ens = extract_ens_handle(repo, &normalized).await?;
     let safe = extract_safe_owner(repo, &normalized).await?;
     let did = extract_did_controller(repo, &normalized).await?;
@@ -173,7 +284,14 @@ pub async fn link_addresses(
     repo.replace_attestations_for_kind(&normalized, EvidenceKind::DidController, &did)
         .await?;
 
-    cluster_from_evidence(repo, &normalized, min_evidence).await
+    cluster_from_evidence_with_fanout(
+        repo,
+        &normalized,
+        min_evidence,
+        fan_out_cap,
+        funded_by_policy,
+    )
+    .await
 }
 
 /// Build clusters strictly from attestations already persisted in the
@@ -185,15 +303,58 @@ pub async fn cluster_from_evidence(
     addresses: &[String],
     min_evidence: usize,
 ) -> Result<LinkingOutput> {
+    cluster_from_evidence_with_fanout(
+        repo,
+        addresses,
+        min_evidence,
+        FAN_OUT_CAP,
+        &FundedByMergePolicy::legacy_disabled(),
+    )
+    .await
+}
+
+pub async fn cluster_from_evidence_with_fanout(
+    repo: &Repo,
+    addresses: &[String],
+    min_evidence: usize,
+    fan_out_cap: usize,
+    funded_by_policy: &FundedByMergePolicy,
+) -> Result<LinkingOutput> {
     let normalized: Vec<String> = addresses.iter().map(|a| a.to_lowercase()).collect();
     let stored = repo.attestations_for(&normalized).await?;
-    build_clusters(&normalized, &stored, min_evidence)
+    cluster_from_attestations(
+        &normalized,
+        &stored,
+        min_evidence,
+        fan_out_cap,
+        funded_by_policy,
+    )
+}
+
+/// Same merge policy as [`cluster_from_evidence`], but uses caller-supplied
+/// attestations (e.g. ablation-filtered rows for evaluation).
+pub fn cluster_from_attestations(
+    addresses: &[String],
+    attestations: &[Attestation],
+    min_evidence: usize,
+    fan_out_cap: usize,
+    funded_by_policy: &FundedByMergePolicy,
+) -> Result<LinkingOutput> {
+    build_clusters(
+        addresses,
+        attestations,
+        min_evidence,
+        fan_out_cap,
+        funded_by_policy,
+    )
 }
 
 fn build_clusters(
     addresses: &[String],
     attestations: &[Attestation],
     min_evidence: usize,
+    fan_out_cap: usize,
+    funded_by_policy: &FundedByMergePolicy,
 ) -> Result<LinkingOutput> {
     let mut graph: UnGraph<String, EdgeLabel> = UnGraph::new_undirected();
     let mut node_of: HashMap<String, NodeIndex> = HashMap::new();
@@ -208,11 +369,16 @@ fn build_clusters(
     }
 
     let mut skipped: Vec<SkippedKey> = Vec::new();
+    let suppressed_funded = always_suppressed_funded_by_keys();
     for ((kind, key), atts) in &by_key {
         if atts.len() < 2 {
             continue;
         }
-        if atts.len() > FAN_OUT_CAP {
+        let service_like_funded = *kind == EvidenceKind::FundedBy
+            && funded_by_policy.enabled
+            && (suppressed_funded.contains(key)
+                || atts.len() > funded_by_policy.service_fan_out_cap);
+        if atts.len() > fan_out_cap || service_like_funded {
             skipped.push(SkippedKey {
                 kind: kind.as_str().to_string(),
                 key: key.clone(),
@@ -232,6 +398,7 @@ fn build_clusters(
                     ai,
                     bi,
                     EdgeLabel {
+                        kind: *kind,
                         key: key.clone(),
                         strength,
                     },
@@ -240,20 +407,78 @@ fn build_clusters(
         }
     }
 
-    type PairStats = (usize, Strength, Vec<String>);
     let mut per_pair: HashMap<(NodeIndex, NodeIndex), PairStats> = HashMap::new();
     for edge in graph.edge_indices() {
         let (a, b) = graph.edge_endpoints(edge).unwrap();
         let label = graph.edge_weight(edge).unwrap();
-        let key_pair = if a.index() < b.index() { (a, b) } else { (b, a) };
-        let entry = per_pair
-            .entry(key_pair)
-            .or_insert_with(|| (0, Strength::Weak, Vec::new()));
-        entry.0 += 1;
-        if label.strength > entry.1 {
-            entry.1 = label.strength;
+        let key_pair = if a.index() < b.index() {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        let entry = per_pair.entry(key_pair).or_insert_with(|| PairStats {
+            total_count: 0,
+            total_max_strength: Strength::Weak,
+            keys: Vec::new(),
+            non_funded_count: 0,
+            non_funded_max_strength: Strength::Weak,
+            funded_unique_keys: HashSet::new(),
+            funded_short_burst_hits: 0,
+        });
+        entry.total_count += 1;
+        if label.strength > entry.total_max_strength {
+            entry.total_max_strength = label.strength;
         }
-        entry.2.push(label.key.clone());
+        entry.keys.push(label.key.clone());
+        if label.kind == EvidenceKind::FundedBy {
+            entry.funded_unique_keys.insert(label.key.clone());
+        } else {
+            entry.non_funded_count += 1;
+            if label.strength > entry.non_funded_max_strength {
+                entry.non_funded_max_strength = label.strength;
+            }
+        }
+    }
+
+    if funded_by_policy.enabled {
+        // Exact funded_by burst accounting from raw attestation groups.
+        let mut by_funded_key: HashMap<String, Vec<&Attestation>> = HashMap::new();
+        for a in attestations {
+            if a.kind == EvidenceKind::FundedBy {
+                by_funded_key.entry(a.key.clone()).or_default().push(a);
+            }
+        }
+        for (key, atts) in by_funded_key {
+            if atts.len() < 2 {
+                continue;
+            }
+            if suppressed_funded.contains(&key)
+                || atts.len() > fan_out_cap
+                || atts.len() > funded_by_policy.service_fan_out_cap
+            {
+                continue;
+            }
+            for i in 0..atts.len() {
+                for j in (i + 1)..atts.len() {
+                    let (Some(&ai), Some(&bi)) =
+                        (node_of.get(&atts[i].address), node_of.get(&atts[j].address))
+                    else {
+                        continue;
+                    };
+                    let pair = if ai.index() < bi.index() {
+                        (ai, bi)
+                    } else {
+                        (bi, ai)
+                    };
+                    if let Some(entry) = per_pair.get_mut(&pair) {
+                        let delta = (atts[i].observed_block - atts[j].observed_block).abs();
+                        if delta <= funded_by_policy.short_burst_block_delta {
+                            entry.funded_short_burst_hits += 1;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Merge invariant — see CLAUDE-skill "Linking Rule":
@@ -263,9 +488,21 @@ fn build_clusters(
     //     accompanied by ≥ 1 medium+ edge.
     let needed = min_evidence.max(1);
     let mut uf = PetUnionFind::<usize>::new(graph.node_count());
-    for ((a, b), (count, max_strength, _)) in &per_pair {
-        let merge = *max_strength == Strength::Strong
-            || (*count >= needed && *max_strength >= Strength::Medium);
+    for ((a, b), stats) in &per_pair {
+        let merge = if !funded_by_policy.enabled {
+            stats.total_max_strength == Strength::Strong
+                || (stats.total_count >= needed && stats.total_max_strength >= Strength::Medium)
+        } else {
+            let strong_non_funded = stats.non_funded_max_strength == Strength::Strong;
+            let medium_non_funded =
+                stats.non_funded_count >= 1 && stats.non_funded_max_strength >= Strength::Medium;
+            let combined_with_non_funded = medium_non_funded
+                && ((stats.non_funded_count + stats.funded_unique_keys.len()) >= needed);
+            let funded_only_repeated_burst = stats.funded_unique_keys.len()
+                >= funded_by_policy.min_shared_keys
+                && stats.funded_short_burst_hits >= funded_by_policy.min_short_burst_hits;
+            strong_non_funded || combined_with_non_funded || funded_only_repeated_burst
+        };
         if merge {
             uf.union(a.index(), b.index());
         }
@@ -280,8 +517,7 @@ fn build_clusters(
     let mut reports: Vec<ClusterReport> = by_label
         .into_values()
         .map(|indices| {
-            let mut addresses: Vec<String> =
-                indices.iter().map(|&i| graph[i].clone()).collect();
+            let mut addresses: Vec<String> = indices.iter().map(|&i| graph[i].clone()).collect();
             addresses.sort();
             let cluster_id = addresses[0].clone();
             let shared_evidence_keys = collect_shared_keys(&indices, &per_pair);
@@ -309,7 +545,7 @@ fn build_clusters(
 
 fn collect_shared_keys(
     indices: &[NodeIndex],
-    per_pair: &HashMap<(NodeIndex, NodeIndex), (usize, Strength, Vec<String>)>,
+    per_pair: &HashMap<(NodeIndex, NodeIndex), PairStats>,
 ) -> Vec<String> {
     let mut all: HashSet<String> = HashSet::new();
     for i in 0..indices.len() {
@@ -319,8 +555,8 @@ fn collect_shared_keys(
             } else {
                 (indices[j], indices[i])
             };
-            if let Some((_, _, keys)) = per_pair.get(&key_pair) {
-                for k in keys {
+            if let Some(stats) = per_pair.get(&key_pair) {
+                for k in &stats.keys {
                     all.insert(k.clone());
                 }
             }

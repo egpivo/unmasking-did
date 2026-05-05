@@ -1,0 +1,392 @@
+{
+  "run": {
+    "run_id": "run-1777645129478558",
+    "started_at": "2026-05-01 14:18:49",
+    "params": {
+      "address_count": 6,
+      "fan_out_cap": 50,
+      "min_evidence": 2
+    }
+  },
+  "nodes": [
+    {
+      "id": "addr:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "kind": "identifier",
+      "type": "address",
+      "label": "0x20fa…b607",
+      "value": "0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "cluster_id": "0x20fa362323447506d9d0c02483ae97c4e2d6b607"
+    },
+    {
+      "id": "addr:0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "kind": "identifier",
+      "type": "address",
+      "label": "0x756e…0b20",
+      "value": "0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "cluster_id": "0x20fa362323447506d9d0c02483ae97c4e2d6b607"
+    },
+    {
+      "id": "addr:0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "kind": "identifier",
+      "type": "address",
+      "label": "0x7964…0434",
+      "value": "0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "cluster_id": "0x20fa362323447506d9d0c02483ae97c4e2d6b607"
+    },
+    {
+      "id": "addr:0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "kind": "identifier",
+      "type": "address",
+      "label": "0xd0d0…2acc",
+      "value": "0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "cluster_id": "0x20fa362323447506d9d0c02483ae97c4e2d6b607"
+    },
+    {
+      "id": "addr:0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "kind": "identifier",
+      "type": "address",
+      "label": "0xe47b…2e48",
+      "value": "0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "cluster_id": "0x20fa362323447506d9d0c02483ae97c4e2d6b607"
+    },
+    {
+      "id": "addr:0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "kind": "identifier",
+      "type": "address",
+      "label": "0xcca5…f761",
+      "value": "0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "cluster_id": "0xcca54b0916cee2186b47e9709bedcb7041a8f761"
+    },
+    {
+      "id": "ev:funded_by:0x1da431d2d5eca4df735f69fb5ea10c8e630b8f50",
+      "kind": "evidence",
+      "type": "funded_by",
+      "label": "0x1da4…8f50",
+      "value": "0x1da431d2d5eca4df735f69fb5ea10c8e630b8f50",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:funded_by:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "kind": "evidence",
+      "type": "funded_by",
+      "label": "0x20fa…b607",
+      "value": "0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:funded_by:0x4cb06982dd097633426cf32038d9f1182a9ada0c",
+      "kind": "evidence",
+      "type": "funded_by",
+      "label": "0x4cb0…da0c",
+      "value": "0x4cb06982dd097633426cf32038d9f1182a9ada0c",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:funded_by:0x687b50a70d33d71f9a82dd330b8c091e4d772508",
+      "kind": "evidence",
+      "type": "funded_by",
+      "label": "0x687b…2508",
+      "value": "0x687b50a70d33d71f9a82dd330b8c091e4d772508",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:funded_by:0x9b2f5ee44b9c09b5a19a0d7e61396a2c80453c2b",
+      "kind": "evidence",
+      "type": "funded_by",
+      "label": "0x9b2f…3c2b",
+      "value": "0x9b2f5ee44b9c09b5a19a0d7e61396a2c80453c2b",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:funded_by:0xae68b7117be0026cbd4366303f74eecbb19e4042",
+      "kind": "evidence",
+      "type": "funded_by",
+      "label": "0xae68…4042",
+      "value": "0xae68b7117be0026cbd4366303f74eecbb19e4042",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:safe_owner:0x1da431d2d5eca4df735f69fb5ea10c8e630b8f50",
+      "kind": "evidence",
+      "type": "safe_owner",
+      "label": "0x1da4…8f50",
+      "value": "0x1da431d2d5eca4df735f69fb5ea10c8e630b8f50",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:safe_owner:0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "kind": "evidence",
+      "type": "safe_owner",
+      "label": "0x5585…1320",
+      "value": "0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:safe_owner:0x66a47ea84e604451cfac2ca6559bd9a2de1c6504",
+      "kind": "evidence",
+      "type": "safe_owner",
+      "label": "0x66a4…6504",
+      "value": "0x66a47ea84e604451cfac2ca6559bd9a2de1c6504",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:safe_owner:0x6ae9233a6a66b5e4befb7f3d6bbad07873b1664b",
+      "kind": "evidence",
+      "type": "safe_owner",
+      "label": "0x6ae9…664b",
+      "value": "0x6ae9233a6a66b5e4befb7f3d6bbad07873b1664b",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:safe_owner:0x716f84f747e2b75abb917ff0bcb0a71c41aa8831",
+      "kind": "evidence",
+      "type": "safe_owner",
+      "label": "0x716f…8831",
+      "value": "0x716f84f747e2b75abb917ff0bcb0a71c41aa8831",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:safe_owner:0x73506528332becf6121f71ac9aad43646a41994c",
+      "kind": "evidence",
+      "type": "safe_owner",
+      "label": "0x7350…994c",
+      "value": "0x73506528332becf6121f71ac9aad43646a41994c",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:safe_owner:0x8460acc9a42d2cf07015a3e838df2e3ab37d30ae",
+      "kind": "evidence",
+      "type": "safe_owner",
+      "label": "0x8460…30ae",
+      "value": "0x8460acc9a42d2cf07015a3e838df2e3ab37d30ae",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:safe_owner:0x8eaf2b9fe2420c55d2d62d21b3e09a09736bf629",
+      "kind": "evidence",
+      "type": "safe_owner",
+      "label": "0x8eaf…f629",
+      "value": "0x8eaf2b9fe2420c55d2d62d21b3e09a09736bf629",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:safe_owner:0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "kind": "evidence",
+      "type": "safe_owner",
+      "label": "0xbc72…e3f4",
+      "value": "0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:safe_owner:0xebbeeaa424ae904508465a41c927be594c43dc68",
+      "kind": "evidence",
+      "type": "safe_owner",
+      "label": "0xebbe…dc68",
+      "value": "0xebbeeaa424ae904508465a41c927be594c43dc68",
+      "strength": "medium"
+    },
+    {
+      "id": "ev:safe_owner:0xee9bb388d320f4305af6a4a1a70c862d3f4d0d5b",
+      "kind": "evidence",
+      "type": "safe_owner",
+      "label": "0xee9b…0d5b",
+      "value": "0xee9bb388d320f4305af6a4a1a70c862d3f4d0d5b",
+      "strength": "medium"
+    }
+  ],
+  "links": [
+    {
+      "source": "addr:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "target": "ev:funded_by:0x1da431d2d5eca4df735f69fb5ea10c8e630b8f50",
+      "type": "funded_by",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "target": "ev:funded_by:0x4cb06982dd097633426cf32038d9f1182a9ada0c",
+      "type": "funded_by",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "target": "ev:funded_by:0x687b50a70d33d71f9a82dd330b8c091e4d772508",
+      "type": "funded_by",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "target": "ev:funded_by:0x9b2f5ee44b9c09b5a19a0d7e61396a2c80453c2b",
+      "type": "funded_by",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "target": "ev:funded_by:0xae68b7117be0026cbd4366303f74eecbb19e4042",
+      "type": "funded_by",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "target": "ev:safe_owner:0x1da431d2d5eca4df735f69fb5ea10c8e630b8f50",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "target": "ev:safe_owner:0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "target": "ev:safe_owner:0x66a47ea84e604451cfac2ca6559bd9a2de1c6504",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "target": "ev:safe_owner:0x73506528332becf6121f71ac9aad43646a41994c",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "target": "ev:safe_owner:0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "target": "ev:safe_owner:0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "target": "ev:safe_owner:0x73506528332becf6121f71ac9aad43646a41994c",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x756ed67a0e73dd1ec4facbc307ca79c28d930b20",
+      "target": "ev:safe_owner:0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "target": "ev:safe_owner:0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "target": "ev:safe_owner:0x73506528332becf6121f71ac9aad43646a41994c",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0x7964e7bf48948c9e1d89f419cad8ef7d8d8f0434",
+      "target": "ev:safe_owner:0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "target": "ev:safe_owner:0x6ae9233a6a66b5e4befb7f3d6bbad07873b1664b",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "target": "ev:safe_owner:0x716f84f747e2b75abb917ff0bcb0a71c41aa8831",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "target": "ev:safe_owner:0x8460acc9a42d2cf07015a3e838df2e3ab37d30ae",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "target": "ev:safe_owner:0x8eaf2b9fe2420c55d2d62d21b3e09a09736bf629",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "target": "ev:safe_owner:0xebbeeaa424ae904508465a41c927be594c43dc68",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xcca54b0916cee2186b47e9709bedcb7041a8f761",
+      "target": "ev:safe_owner:0xee9bb388d320f4305af6a4a1a70c862d3f4d0d5b",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "target": "ev:funded_by:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "type": "funded_by",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "target": "ev:safe_owner:0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "target": "ev:safe_owner:0x73506528332becf6121f71ac9aad43646a41994c",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xd0d05390d922a2c45a70eaa4601600f236c02acc",
+      "target": "ev:safe_owner:0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "target": "ev:funded_by:0x20fa362323447506d9d0c02483ae97c4e2d6b607",
+      "type": "funded_by",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "target": "ev:safe_owner:0x558581b0345d986ba5bd6f04efd27e2a5b991320",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "target": "ev:safe_owner:0x73506528332becf6121f71ac9aad43646a41994c",
+      "type": "safe_owner",
+      "strength": "medium"
+    },
+    {
+      "source": "addr:0xe47b51a31ad43acb72a224fab4a17999311e2e48",
+      "target": "ev:safe_owner:0xbc72d9f10f6626271092764467983122cf15e3f4",
+      "type": "safe_owner",
+      "strength": "medium"
+    }
+  ],
+  "limits": {
+    "max_identifier_nodes": 50,
+    "max_evidence_nodes": 200,
+    "depth": 1,
+    "fan_out_cap": 50,
+    "truncated_identifiers": false,
+    "truncated_evidence": false,
+    "applied_filters": [
+      "fan_out_cap = 50 (computed on full run, before identifier truncation)",
+      "cex_blacklist (applied at extraction in extract_funded_by)",
+      "depth = 1 (no recursion past direct evidence on cluster members)"
+    ]
+  }
+}

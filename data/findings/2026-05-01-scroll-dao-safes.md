@@ -8,6 +8,30 @@
 **Code commit**: see git log on the `data/first-scroll-finding` branch
 **Run id**: `run-1777602821371447` (queryable in `clustering_runs` for full audit)
 
+## Graph artifact
+
+The bounded D3 finding graph for this finding lives at
+[`2026-05-01-scroll-dao-safes.graph.json`](2026-05-01-scroll-dao-safes.graph.json),
+exported via `cargo run -- export-graph`. **Note the run-id mismatch**:
+the JSON records `run-1777645129478558`, while this Markdown's
+"Run id" above is `run-1777602821371447`. The two are different
+ingest+link cycles over the **same input set** — the original SQLite
+database used for this Markdown was deleted as scratch cleanup before
+the graph-export feature shipped, and the graph artifact was produced
+from an equivalent re-ingest. They share:
+
+- the same six Scroll DAO Safe addresses (the Input set table below),
+- the same `SAFE_TX_SERVICE_URL` and Alchemy endpoint,
+- the same `--min-evidence 2` clustering parameter,
+- the same Safe Tx Service responses (governance ownership state has
+  not changed in the interval),
+
+so the resulting cluster shape — Cluster A across `#1`–`#5`, `#6` as a
+disjoint negative control — is identical in both runs. Treat the graph
+artifact as the visualization of *this* finding even though its
+`run_id` is from the second run; if you want to recompute either side
+end-to-end, the steps in the Goal section below reproduce both.
+
 ## Goal
 
 A small, narrow, reproducible test of the tool against documented Scroll
