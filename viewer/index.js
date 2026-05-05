@@ -2,10 +2,10 @@
   "use strict";
 
   const CANONICAL_RUN_ID = "run-1777967119432576";
-  const ARTIFACTS = {
-    summary: "../out/phase2_arbitrum_gov_summary.json",
-    graph: "../out/phase2_arbitrum_gov.graph.json",
-    report: "../out/phase2_arbitrum_gov_report.md",
+  const ARTIFACT_FILES = {
+    summary: "phase2_arbitrum_gov_summary.json",
+    graph: "phase2_arbitrum_gov.graph.json",
+    report: "phase2_arbitrum_gov_report.md",
   };
 
   const el = {
@@ -29,16 +29,47 @@
   let nodeSelection = null;
   let linkSelection = null;
 
-  async function loadJson(path) {
-    const r = await fetch(path, { cache: "no-store" });
-    if (!r.ok) throw new Error(`${path}: ${r.status} ${r.statusText}`);
-    return r.json();
+  function detectBasePath() {
+    const p = window.location.pathname || "/";
+    const marker = "/viewer/";
+    const idx = p.indexOf(marker);
+    if (idx >= 0) return p.slice(0, idx);
+    return "";
   }
 
-  async function loadText(path) {
-    const r = await fetch(path, { cache: "no-store" });
-    if (!r.ok) throw new Error(`${path}: ${r.status} ${r.statusText}`);
-    return r.text();
+  function artifactCandidates(kind) {
+    const file = ARTIFACT_FILES[kind];
+    const basePath = detectBasePath();
+    const rootPrefixed = basePath ? `${basePath}/out/${file}` : `/out/${file}`;
+    return [
+      `../out/${file}`,
+      `./../out/${file}`,
+      rootPrefixed,
+      `/out/${file}`,
+    ];
+  }
+
+  async function loadWithCandidates(kind, parser) {
+    const tried = [];
+    for (const path of artifactCandidates(kind)) {
+      try {
+        const r = await fetch(path, { cache: "no-store" });
+        tried.push(`${path} -> ${r.status}`);
+        if (!r.ok) continue;
+        return parser(r);
+      } catch (err) {
+        tried.push(`${path} -> ${err.message || String(err)}`);
+      }
+    }
+    throw new Error(`Failed to load ${kind}; tried: ${tried.join(" | ")}`);
+  }
+
+  async function loadJson(kind) {
+    return loadWithCandidates(kind, (r) => r.json());
+  }
+
+  async function loadText(kind) {
+    return loadWithCandidates(kind, (r) => r.text());
   }
 
   function escapeHtml(s) {
@@ -385,9 +416,9 @@
   async function init() {
     try {
       const [summary, graph, report] = await Promise.all([
-        loadJson(ARTIFACTS.summary),
-        loadJson(ARTIFACTS.graph),
-        loadText(ARTIFACTS.report).catch(() => ""),
+        loadJson("summary"),
+        loadJson("graph"),
+        loadText("report").catch(() => ""),
       ]);
       summaryData = summary;
       graphData = graph;
