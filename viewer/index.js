@@ -25,6 +25,11 @@
     advPolicy: document.getElementById("adv-policy"),
     advLineage: document.getElementById("adv-lineage"),
     advConcentration: document.getElementById("adv-concentration"),
+    ctxMode: document.getElementById("ctx-mode"),
+    ctxClusterId: document.getElementById("ctx-cluster-id"),
+    ctxSizeDegree: document.getElementById("ctx-size-degree"),
+    ctxGc: document.getElementById("ctx-gc"),
+    ctxEvidence: document.getElementById("ctx-evidence"),
   };
 
   let graphData = null;
@@ -179,6 +184,7 @@
       listItem("run_id", summary.run_id ?? "-"),
       listItem("window", parseWindowFromReport(report)),
     ].join("");
+
   }
 
   function topClusters(summary) {
@@ -272,12 +278,24 @@
         if (tn && tn.kind === "evidence") evidenceNodes.add(tn.id);
       }
     });
+    const gc = getClusterGovControl(clusterId);
     return {
       cluster_id: clusterId,
       size: idNodes.length,
+      governance_count: gc ? gc.governance_count : null,
+      control_count: gc ? gc.control_count : null,
       connected_evidence_types: Array.from(evidenceKinds).sort(),
       visible_evidence_nodes: evidenceNodes.size,
       visible_links: degree,
+    };
+  }
+
+  function getClusterGovControl(clusterId) {
+    const hit = topClusters(summaryData).find((c) => c.cluster_id === clusterId);
+    if (!hit) return null;
+    return {
+      governance_count: hit.governance_count,
+      control_count: hit.control_count,
     };
   }
 
@@ -285,6 +303,21 @@
     const hit = topClusters(summaryData).find((c) => c.cluster_id === clusterId);
     if (hit) {
       const keys = Array.isArray(hit.shared_evidence_keys) ? hit.shared_evidence_keys : [];
+      const kinds = Array.from(
+        new Set(
+          keys.map((k) => {
+            const i = String(k).indexOf(":");
+            return i > 0 ? String(k).slice(0, i) : "funded_by";
+          })
+        )
+      );
+      setContextClusterMetrics({
+        cluster_id: hit.cluster_id,
+        size: hit.size,
+        governance_count: hit.governance_count,
+        control_count: hit.control_count,
+        connected_evidence_types: kinds,
+      });
       el.inspector.innerHTML = `
         <h3>Cluster detail</h3>
         <p><b>cluster_id:</b> <span class="mono">${escapeHtml(hit.cluster_id)}</span></p>
@@ -296,6 +329,7 @@
       return;
     }
     const derived = graphDerivedCluster(clusterId);
+    setContextClusterMetrics(derived);
     el.inspector.innerHTML = `
       <h3>Cluster detail (graph-derived)</h3>
       <p><b>cluster_id:</b> <span class="mono">${escapeHtml(derived.cluster_id)}</span></p>
@@ -308,6 +342,7 @@
 
   function renderInspectorForNode(node, incidentLinks) {
     const kinds = Array.from(new Set(incidentLinks.map((l) => l.type).filter(Boolean))).sort();
+    setContextNodeMetrics(node, incidentLinks, kinds);
     el.inspector.innerHTML = `
       <h3>Node detail</h3>
       <p><b>address/node:</b> <span class="mono">${escapeHtml(node.value || node.id)}</span></p>
@@ -315,6 +350,26 @@
       <p><b>connected evidence types:</b> ${kinds.length ? escapeHtml(kinds.join(", ")) : "none"}</p>
       <p><b>degree / connections:</b> ${incidentLinks.length}</p>
     `;
+  }
+
+  function setContextClusterMetrics(cluster) {
+    el.ctxMode.textContent = "cluster";
+    el.ctxClusterId.textContent = cluster.cluster_id || "-";
+    el.ctxSizeDegree.textContent = String(cluster.size ?? "-");
+    const g = cluster.governance_count;
+    const c = cluster.control_count;
+    el.ctxGc.textContent = (g == null && c == null) ? "-" : `${g ?? "-"} / ${c ?? "-"}`;
+    const kinds = Array.isArray(cluster.connected_evidence_types) ? cluster.connected_evidence_types : [];
+    el.ctxEvidence.textContent = kinds.length ? kinds.join(", ") : "-";
+  }
+
+  function setContextNodeMetrics(node, incidentLinks, kinds) {
+    el.ctxMode.textContent = node.kind === "identifier" ? "node (identifier)" : `node (${node.kind || "unknown"})`;
+    el.ctxClusterId.textContent = node.cluster_id || "-";
+    el.ctxSizeDegree.textContent = String(incidentLinks.length);
+    const gc = node.cluster_id ? getClusterGovControl(node.cluster_id) : null;
+    el.ctxGc.textContent = gc ? `${gc.governance_count ?? "-"} / ${gc.control_count ?? "-"}` : "-";
+    el.ctxEvidence.textContent = kinds.length ? kinds.join(", ") : "-";
   }
 
   function renderGraph(summary, graph) {

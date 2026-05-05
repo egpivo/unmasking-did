@@ -35,8 +35,8 @@
       padding: 1rem;
       margin-bottom: 0.8rem;
     }
-    h1 { margin: 0 0 0.35rem; font-size: 1.35rem; letter-spacing: -0.02em; }
-    h2 { margin: 0 0 0.45rem; font-size: 1.03rem; }
+    h1 { margin: 0 0 0.35rem; font-size: 1.22rem; letter-spacing: -0.02em; }
+    h2 { margin: 0 0 0.45rem; font-size: 0.96rem; }
     p { margin: 0.2rem 0 0.45rem; }
     .muted { color: var(--muted); }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -83,9 +83,11 @@
       letter-spacing: 0.04em;
     }
     .card .v {
-      font-size: 1.35rem;
+      font-size: 1.12rem;
       font-weight: 800;
       margin-top: 0.1rem;
+      line-height: 1.15;
+      word-break: break-word;
     }
     .danger { color: var(--danger); }
     .good { color: var(--good); }
@@ -149,10 +151,14 @@
       margin-top: 0.55rem;
     }
     @media (max-width: 980px) { .split { grid-template-columns: 1fr; } }
+    #context-cards .card .v {
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
     }
     th, td {
       border-bottom: 1px solid var(--border);
@@ -175,7 +181,7 @@
       padding: 0.65rem;
       background: #fff;
       min-height: 220px;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
     }
     .boundary {
       border: 2px solid #fcd34d;
@@ -237,6 +243,34 @@
       <div id="consistency-error"></div>
     </section>
 
+    <section id="advanced">
+      <details class="advanced" open>
+        <summary>Advanced metrics (pipeline + policy + lineage)</summary>
+        <div class="advanced-grid">
+          <div class="metric-box">
+            <div class="title">Coverage</div>
+            <ul class="metric-list" id="adv-coverage"></ul>
+          </div>
+          <div class="metric-box">
+            <div class="title">Ingestion / cost</div>
+            <ul class="metric-list" id="adv-ingestion"></ul>
+          </div>
+          <div class="metric-box">
+            <div class="title">Policy profile</div>
+            <ul class="metric-list" id="adv-policy"></ul>
+          </div>
+          <div class="metric-box">
+            <div class="title">Lineage</div>
+            <ul class="metric-list" id="adv-lineage"></ul>
+          </div>
+          <div class="metric-box">
+            <div class="title">Concentration</div>
+            <ul class="metric-list" id="adv-concentration"></ul>
+          </div>
+        </div>
+      </details>
+    </section>
+
     <section id="problem">
       <h2>1) Problem: Naive funded_by Failure</h2>
       <p class="muted">Historical baseline (naive funded_by policy)</p>
@@ -269,35 +303,17 @@
         <div class="tooltip" id="tooltip"></div>
       </div>
       <p class="result-note">The giant cluster disappears. Smaller, interpretable clusters emerge.</p>
-      <details class="advanced">
-        <summary>Advanced metrics (pipeline + policy + lineage)</summary>
-        <div class="advanced-grid">
-          <div class="metric-box">
-            <div class="title">Coverage</div>
-            <ul class="metric-list" id="adv-coverage"></ul>
-          </div>
-          <div class="metric-box">
-            <div class="title">Ingestion / cost</div>
-            <ul class="metric-list" id="adv-ingestion"></ul>
-          </div>
-          <div class="metric-box">
-            <div class="title">Policy profile</div>
-            <ul class="metric-list" id="adv-policy"></ul>
-          </div>
-          <div class="metric-box">
-            <div class="title">Lineage</div>
-            <ul class="metric-list" id="adv-lineage"></ul>
-          </div>
-          <div class="metric-box">
-            <div class="title">Concentration</div>
-            <ul class="metric-list" id="adv-concentration"></ul>
-          </div>
-        </div>
-      </details>
     </section>
 
     <section id="inspect">
       <h2>4) Interactive Cluster Inspection</h2>
+      <div class="cards" id="context-cards">
+        <div class="card"><div class="k">selection</div><div class="v" id="ctx-mode">cluster</div></div>
+        <div class="card"><div class="k">cluster_id</div><div class="v mono" id="ctx-cluster-id">-</div></div>
+        <div class="card"><div class="k">size / degree</div><div class="v" id="ctx-size-degree">-</div></div>
+        <div class="card"><div class="k">gov/control</div><div class="v" id="ctx-gc">-</div></div>
+        <div class="card"><div class="k">evidence types</div><div class="v" id="ctx-evidence">-</div></div>
+      </div>
       <div class="split">
         <div>
           <table>
