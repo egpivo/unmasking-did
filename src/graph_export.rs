@@ -58,7 +58,7 @@ pub const DEFAULT_MAX_EVIDENCE_NODES: usize = 200;
 
 #[derive(Debug, Serialize)]
 pub struct Graph {
-    /// `evidence` — bipartite identifier↔evidence graph (debug / audit view).  
+    /// `evidence` — bipartite identifier↔evidence graph (debug / audit view).
     /// `pairwise` — identifier↔identifier edges with scores and tiers.
     pub graph_mode: String,
     pub run: RunSummary,

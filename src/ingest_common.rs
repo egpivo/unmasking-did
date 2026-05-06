@@ -25,10 +25,7 @@ pub fn normalize_eth_address(addr: &str) -> Result<String> {
 
 /// Map an `is_contract` probe result to the `owner_is_safe` flag.
 pub fn classify_owner_probe(probe: Result<bool>) -> bool {
-    match probe {
-        Ok(is_contract) => is_contract,
-        Err(_) => true,
-    }
+    probe.unwrap_or(true)
 }
 
 pub async fn store_safe_owners(
@@ -89,10 +86,7 @@ mod tests {
                 body_text.len(),
                 body_text
             );
-            stream
-                .write_all(resp.as_bytes())
-                .await
-                .expect("write resp");
+            stream.write_all(resp.as_bytes()).await.expect("write resp");
         });
         format!("http://{}", addr)
     }

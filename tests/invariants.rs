@@ -2,7 +2,7 @@
 //!   * Strong evidence may merge two addresses on its own.
 //!   * Weak-only evidence never merges, regardless of count.
 //!   * `(kind, key)` groups exceeding the fan-out cap are skipped and
-//!      surfaced as suspected service keys.
+//!     surfaced as suspected service keys.
 //!   * `cluster_id` is deterministic across runs (= min address).
 
 use unmasking_did::evidence::{Attestation, EvidenceKind, Strength};

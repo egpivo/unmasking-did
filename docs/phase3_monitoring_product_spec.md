@@ -1,6 +1,6 @@
 # Phase 3 Monitoring Product Spec
 
-Status: proposal (no implementation in this document)  
+Status: proposal (no implementation in this document)
 Scope: reproducible coordination monitoring product layer over validated Phase 2 conservative pipeline.
 
 ## Policy Profile

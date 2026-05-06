@@ -14,6 +14,7 @@ pub struct LineageConfig {
     pub related_threshold: f64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn should_run_lineage(
     current_chain: &str,
     current_policy_profile_id: &str,

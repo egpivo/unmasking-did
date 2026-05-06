@@ -1,6 +1,6 @@
 # Run Spec: Arbitrum Governance Participants (90d)
 
-Status: draft for review  
+Status: draft for review
 Execution: **not started** (spec only)
 
 ## 1) Objective
@@ -303,4 +303,3 @@ Seeds (read-only): `data/seeds/arbitrum_gov_90d_governance_stratified500.csv`, `
 - [ ] Query-count estimate documented
 - [ ] Output paths finalized
 - [ ] Conservative language confirmed in report templates
-

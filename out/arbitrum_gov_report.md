@@ -184,4 +184,3 @@ Cluster identities are deterministic: `cluster_id = min(address)`. Re-running th
 - **lineage_enabled**: `false`
 - **lineage_note**: No prior same-profile run available; lineage not computed for this run.
 - **lineage_counts**: stable=0, related=0, new=0, disappeared=0, total_rows=0
-

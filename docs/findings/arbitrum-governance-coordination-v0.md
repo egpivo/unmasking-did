@@ -1,6 +1,6 @@
 # Arbitrum Governance Coordination v0 (Conservative)
 
-Status: validated v0 finding package  
+Status: validated v0 finding package
 Scope: coordination-monitoring output only (not Sybil detection)
 
 ## Dataset Design

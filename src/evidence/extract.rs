@@ -58,7 +58,7 @@ pub async fn extract_ens_handle(repo: &Repo, addresses: &[String]) -> Result<Vec
             ("github", record.github.as_ref()),
             ("telegram", record.telegram.as_ref()),
         ] {
-            if let Some(handle) = value.and_then(non_empty) {
+            if let Some(handle) = value.map(|s| s.as_str()).and_then(non_empty) {
                 out.push(Attestation {
                     address: address.clone(),
                     kind: EvidenceKind::EnsHandle,
@@ -74,7 +74,7 @@ pub async fn extract_ens_handle(repo: &Repo, addresses: &[String]) -> Result<Vec
     Ok(out)
 }
 
-fn non_empty(s: &String) -> Option<&str> {
+fn non_empty(s: &str) -> Option<&str> {
     let t = s.trim();
     if t.is_empty() {
         None
@@ -113,6 +113,7 @@ fn normalize_handle(s: &str) -> String {
 ///      controller — a single logical fact gets weighted as if it
 ///      were N independent observations, breaking the `min_evidence`
 ///      threshold's semantic.
+///
 /// We collapse to one attestation per `(subject, controller)` pair
 /// here, with the full list of supporting DIDs preserved in
 /// `payload_json` so audit information isn't lost. The

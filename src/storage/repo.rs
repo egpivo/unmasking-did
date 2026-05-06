@@ -1084,9 +1084,7 @@ mod tests {
         assert!(parse_shared_evidence_keys(Some("not-json")).is_empty());
         assert!(parse_shared_evidence_keys(Some(r#"{"foo":1}"#)).is_empty());
         assert_eq!(
-            parse_shared_evidence_keys(Some(
-                r#"{"shared_evidence_keys":["a","b","c"]}"#
-            )),
+            parse_shared_evidence_keys(Some(r#"{"shared_evidence_keys":["a","b","c"]}"#)),
             vec!["a".to_string(), "b".to_string(), "c".to_string()]
         );
     }
@@ -1167,7 +1165,7 @@ mod tests {
 
         let replaced = repo
             .replace_attestations_for_kind(
-                &[a1.clone()],
+                std::slice::from_ref(&a1),
                 EvidenceKind::FundedBy,
                 &[Attestation {
                     address: a2.clone(),
@@ -1187,7 +1185,11 @@ mod tests {
             .attestations_for(&[a1, a2])
             .await
             .expect("attestations");
-        assert_eq!(all.len(), 2, "safe_owner should remain, funded_by should be replaced");
+        assert_eq!(
+            all.len(),
+            2,
+            "safe_owner should remain, funded_by should be replaced"
+        );
         assert!(all.iter().any(|a| a.kind == EvidenceKind::SafeOwner));
         assert!(all.iter().any(|a| a.key == "0xfunder2"));
     }

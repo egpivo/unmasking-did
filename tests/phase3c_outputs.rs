@@ -3,7 +3,8 @@ use unmasking_did::alchemy::Transfer;
 use unmasking_did::graph_export::build_graph;
 use unmasking_did::linking::link_and_persist;
 use unmasking_did::pipelines::arbitrum_governance::{
-    ArbitrumGovSummary, ClusterSummary, LineageCounts, LineageSummary, PaginationCapHits, SeedCounts,
+    ArbitrumGovSummary, ClusterSummary, LineageCounts, LineageSummary, PaginationCapHits,
+    SeedCounts,
 };
 use unmasking_did::storage::{connect, run_migrations, Repo};
 

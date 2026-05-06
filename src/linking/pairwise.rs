@@ -305,9 +305,7 @@ pub fn score_pair(
 
     let link_probability = score_to_link_probability(score, params);
 
-    let tier = if deterministic_anchor {
-        LinkTier::Accepted
-    } else if score >= params.t_high && has_structural_support {
+    let tier = if deterministic_anchor || (score >= params.t_high && has_structural_support) {
         LinkTier::Accepted
     } else if score > params.t_low {
         LinkTier::Uncertain
@@ -512,7 +510,10 @@ mod tests {
         assert_eq!(bundled.t_low, dflt.t_low);
         assert_eq!(bundled.w_did_controller, dflt.w_did_controller);
         assert_eq!(bundled.w_safe_owner_jaccard, dflt.w_safe_owner_jaccard);
-        assert_eq!(bundled.w_safe_owner_min_overlap, dflt.w_safe_owner_min_overlap);
+        assert_eq!(
+            bundled.w_safe_owner_min_overlap,
+            dflt.w_safe_owner_min_overlap
+        );
         assert_eq!(
             bundled.w_shared_safe_owner_count,
             dflt.w_shared_safe_owner_count
@@ -524,10 +525,7 @@ mod tests {
             dflt.funder_fanout_ln_offset
         );
         assert_eq!(bundled.link_probability_mid, dflt.link_probability_mid);
-        assert_eq!(
-            bundled.link_probability_scale,
-            dflt.link_probability_scale
-        );
+        assert_eq!(bundled.link_probability_scale, dflt.link_probability_scale);
     }
 
     #[test]
@@ -542,7 +540,10 @@ mod tests {
         assert!((score_to_link_probability(-1.0e9, &p) - 0.0).abs() < 1e-9);
         assert!((score_to_link_probability(1.0e9, &p) - 1.0).abs() < 1e-9);
         let mid = score_to_link_probability(p.link_probability_mid, &p);
-        assert!(mid > 0.45 && mid < 0.55, "logistic at midpoint ~0.5, got {mid}");
+        assert!(
+            mid > 0.45 && mid < 0.55,
+            "logistic at midpoint ~0.5, got {mid}"
+        );
     }
 
     #[test]

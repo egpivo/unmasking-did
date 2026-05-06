@@ -90,7 +90,9 @@ mod tests {
     #[test]
     fn parse_transfers_rejects_non_array() {
         let err = parse_transfers(&json!({"not":"array"})).unwrap_err();
-        assert!(err.to_string().contains("expected `transfers` to be an array"));
+        assert!(err
+            .to_string()
+            .contains("expected `transfers` to be an array"));
     }
 
     #[test]

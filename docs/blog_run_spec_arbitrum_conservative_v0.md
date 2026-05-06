@@ -71,4 +71,3 @@ This run supports coordination-evidence analysis only. It does not support:
 - Sybil attack adjudication by itself
 - real-world identity attribution
 - intent or maliciousness claims
-

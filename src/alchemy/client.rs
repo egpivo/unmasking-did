@@ -139,6 +139,7 @@ impl AlchemyClient {
     /// Stops when any cap trips: `max_pages` per direction leg, `max_rows`
     /// total rows appended, or distinct counterparty addresses ≥
     /// `early_stop_distinct_peers` (evaluated after each page).
+    #[allow(clippy::too_many_arguments)]
     pub async fn get_asset_transfers_bounded(
         &self,
         address: &str,
@@ -337,10 +338,7 @@ mod tests {
                 body_text.len(),
                 body_text
             );
-            stream
-                .write_all(resp.as_bytes())
-                .await
-                .expect("write resp");
+            stream.write_all(resp.as_bytes()).await.expect("write resp");
         });
         format!("http://{}", addr)
     }
@@ -422,7 +420,9 @@ mod tests {
             .call("alchemy_getAssetTransfers", &serde_json::json!([{}]))
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("missing both `result` and `error`"));
+        assert!(err
+            .to_string()
+            .contains("missing both `result` and `error`"));
     }
 
     #[tokio::test]

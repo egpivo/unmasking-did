@@ -155,7 +155,7 @@ enum Command {
         /// Output JSON file path.
         #[arg(long, default_value = "out/graph.json")]
         out: String,
-        /// `evidence` — bipartite identifier↔evidence graph (audit / debug).  
+        /// `evidence` — bipartite identifier↔evidence graph (audit / debug).
         /// `pairwise` — identifier↔identifier scored linkage edges.
         #[arg(long, default_value = "evidence")]
         graph_mode: String,
@@ -491,6 +491,7 @@ async fn run_ingest(cfg: &Config, repo: &Repo, address: &str) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_link(
     repo: &Repo,
     addresses: Vec<String>,
@@ -777,6 +778,7 @@ async fn run_add_safe_owner(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_export_graph(
     repo: &Repo,
     out: String,
@@ -1069,7 +1071,8 @@ mod tests {
 
     #[test]
     fn cli_export_graph_defaults_parse() {
-        let cli = Cli::try_parse_from(["unmasking-did", "export-graph"]).expect("parse export-graph");
+        let cli =
+            Cli::try_parse_from(["unmasking-did", "export-graph"]).expect("parse export-graph");
         let Command::ExportGraph {
             graph_mode,
             max_identifier_nodes,
@@ -1092,8 +1095,8 @@ mod tests {
 
     #[test]
     fn cli_arbitrum_gov_defaults_parse() {
-        let cli = Cli::try_parse_from(["unmasking-did", "arbitrum-gov"])
-            .expect("parse arbitrum-gov");
+        let cli =
+            Cli::try_parse_from(["unmasking-did", "arbitrum-gov"]).expect("parse arbitrum-gov");
         let Command::ArbitrumGov {
             database,
             governance_csv,
@@ -1121,9 +1124,16 @@ mod tests {
     #[tokio::test]
     async fn run_add_ens_record_requires_at_least_one_field() {
         let repo = test_repo().await;
-        let err = run_add_ens_record(&repo, "0x1111111111111111111111111111111111111111".to_string(), None, None, None, None)
-            .await
-            .unwrap_err();
+        let err = run_add_ens_record(
+            &repo,
+            "0x1111111111111111111111111111111111111111".to_string(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap_err();
         assert!(err.to_string().contains("at least one of"));
     }
 
@@ -1161,7 +1171,10 @@ mod tests {
             .await
             .expect("did docs");
         assert_eq!(docs.len(), 1);
-        assert_eq!(docs[0].controller, "0x4444444444444444444444444444444444444444");
+        assert_eq!(
+            docs[0].controller,
+            "0x4444444444444444444444444444444444444444"
+        );
     }
 
     #[tokio::test]
@@ -1198,9 +1211,16 @@ mod tests {
         let a2 = "0x2222222222222222222222222222222222222222".to_string();
         let shared_owner = "0x3333333333333333333333333333333333333333".to_string();
 
-        run_add_safe_owner(&repo, a1.clone(), shared_owner.clone(), false, Some(2), Some(10))
-            .await
-            .expect("add safe owner a1");
+        run_add_safe_owner(
+            &repo,
+            a1.clone(),
+            shared_owner.clone(),
+            false,
+            Some(2),
+            Some(10),
+        )
+        .await
+        .expect("add safe owner a1");
         run_add_safe_owner(&repo, a2.clone(), shared_owner, false, Some(2), Some(11))
             .await
             .expect("add safe owner a2");
@@ -1240,14 +1260,32 @@ mod tests {
             .expect("run_report markdown");
 
         let out_evidence = "out/test_main_evidence_graph.json".to_string();
-        run_export_graph(&repo, out_evidence, "evidence".to_string(), 100, 100, 50, 100, None)
-            .await
-            .expect("export evidence graph");
+        run_export_graph(
+            &repo,
+            out_evidence,
+            "evidence".to_string(),
+            100,
+            100,
+            50,
+            100,
+            None,
+        )
+        .await
+        .expect("export evidence graph");
 
         let out_pairwise = "out/test_main_pairwise_graph.json".to_string();
-        run_export_graph(&repo, out_pairwise, "pairwise".to_string(), 100, 100, 50, 100, None)
-            .await
-            .expect("export pairwise graph");
+        run_export_graph(
+            &repo,
+            out_pairwise,
+            "pairwise".to_string(),
+            100,
+            100,
+            50,
+            100,
+            None,
+        )
+        .await
+        .expect("export pairwise graph");
 
         let scored_out = "out/test_main_scored_pairs.json".to_string();
         run_score_pairs(&repo, vec![a1, a2], 100, None, Some(scored_out))

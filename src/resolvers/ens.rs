@@ -108,10 +108,7 @@ mod tests {
                 body_text.len(),
                 body_text
             );
-            stream
-                .write_all(resp.as_bytes())
-                .await
-                .expect("write resp");
+            stream.write_all(resp.as_bytes()).await.expect("write resp");
         });
         format!("http://{}", addr)
     }

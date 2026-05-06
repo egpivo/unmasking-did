@@ -32,4 +32,3 @@ jobs:
         with:
           name: static-viewer-preview
           path: site
-

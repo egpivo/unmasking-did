@@ -183,6 +183,7 @@ struct SeedRow {
     role: &'static str,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_lineage_summary(
     current_run_id: &str,
     current_chain: &str,
@@ -1167,10 +1168,7 @@ mod tests {
             addresses: vec!["0xunknown0000000000000000000000000000000001".to_string()],
             shared_evidence_keys: vec![],
         };
-        assert_eq!(
-            coordination_tier(&singleton_other, &gov, &ctl),
-            "singleton"
-        );
+        assert_eq!(coordination_tier(&singleton_other, &gov, &ctl), "singleton");
 
         let mut gov2 = HashSet::new();
         gov2.extend([
@@ -1282,7 +1280,10 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].role, "governance");
         assert_eq!(rows[0].first_seen_block, 123);
-        assert_eq!(rows[0].address, "0xabcdef0123456789abcdef0123456789abcdef01");
+        assert_eq!(
+            rows[0].address,
+            "0xabcdef0123456789abcdef0123456789abcdef01"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1349,11 +1350,7 @@ mod tests {
             .expect("clock")
             .as_nanos();
         let path = std::env::temp_dir().join(format!("arb_gov_empty_csv_{ts}.csv"));
-        std::fs::write(
-            &path,
-            "address,first_seen_block,seed_type\n",
-        )
-        .expect("write csv");
+        std::fs::write(&path, "address,first_seen_block,seed_type\n").expect("write csv");
         let rows = parse_seed_csv(&path, "governance").expect("parse");
         assert!(rows.is_empty());
         let _ = std::fs::remove_file(&path);
@@ -1441,9 +1438,8 @@ mod tests {
             None,
         )
         .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("current cluster map is required when lineage is enabled")
-        );
+        assert!(err
+            .to_string()
+            .contains("current cluster map is required when lineage is enabled"));
     }
 }

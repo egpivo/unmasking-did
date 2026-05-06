@@ -112,4 +112,3 @@
 - counts by gold label: {'same_control': 25, 'different_control': 8, 'uncertain': 3}
 - counts by recommendation on gold: {'insufficient_evidence': 24, 'related_only': 2, 'control_link_candidate': 10}
 - caveat: Small/curated gold sets; diagnostics are directional only, not statistically definitive.
-
