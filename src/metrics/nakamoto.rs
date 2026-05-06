@@ -65,4 +65,22 @@ mod tests {
         let g = gini(&[100, 0, 0, 0]).unwrap();
         assert!(g > 0.7);
     }
+
+    #[test]
+    fn nakamoto_empty_or_zero_total() {
+        assert_eq!(nakamoto_coefficient(&[], 0.5), None);
+        assert_eq!(nakamoto_coefficient(&[0, 0], 0.5), None);
+    }
+
+    #[test]
+    fn nakamoto_never_exceeds_threshold_uses_full_count() {
+        // Strict inequality: acc/total > threshold never holds when threshold >= 1.0.
+        assert_eq!(nakamoto_coefficient(&[1, 2, 3], 1.0), Some(3));
+    }
+
+    #[test]
+    fn gini_empty_or_zero_total() {
+        assert_eq!(gini(&[]), None);
+        assert_eq!(gini(&[0, 0]), None);
+    }
 }

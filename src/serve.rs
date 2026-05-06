@@ -140,6 +140,8 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use crate::alchemy::Transfer;
+    use crate::linking::link_and_persist;
     use crate::storage::{connect, run_migrations};
 
     static TEST_DB_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -161,6 +163,36 @@ mod tests {
             .await
             .expect("body bytes");
         String::from_utf8(bytes.to_vec()).expect("utf8")
+    }
+
+    fn xfer(from: &str, to: &str, block: i64, tx: &str) -> Transfer {
+        Transfer {
+            from_addr: from.to_string(),
+            to_addr: to.to_string(),
+            value: Some("1".to_string()),
+            block_num: Some(block),
+            tx_hash: Some(tx.to_string()),
+            asset: Some("ETH".to_string()),
+        }
+    }
+
+    async fn repo_with_linked_pair() -> Repo {
+        let repo = test_repo().await;
+        let funder = "0xff11ff11ff11ff11ff11ff11ff11ff11ff11ff11";
+        let alice = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let bob = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        repo.insert_transfer(&xfer(funder, alice, 100, "0x1"))
+            .await
+            .expect("xfer1");
+        repo.insert_transfer(&xfer(funder, bob, 101, "0x2"))
+            .await
+            .expect("xfer2");
+        repo.upsert_address(alice, Some(100)).await.expect("addr1");
+        repo.upsert_address(bob, Some(101)).await.expect("addr2");
+        link_and_persist(&repo, &[alice.into(), bob.into()], 1)
+            .await
+            .expect("link");
+        repo
     }
 
     #[tokio::test]
@@ -226,5 +258,47 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
         let body = body_string(resp).await;
         assert!(body.contains("no clustering runs"));
+    }
+
+    #[tokio::test]
+    async fn api_graph_evidence_returns_ok_after_linking() {
+        let repo = repo_with_linked_pair().await;
+        let resp = api_graph(
+            State(repo),
+            Query(GraphQuery {
+                mode: None,
+                max_identifier_nodes: Some(50),
+                max_evidence_nodes: Some(50),
+                fan_out_cap: Some(50),
+                max_pairwise_links: None,
+                linkage_params: None,
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_string(resp).await;
+        assert!(body.contains("\"graph_mode\""));
+        assert!(body.contains("evidence"));
+    }
+
+    #[tokio::test]
+    async fn api_graph_pairwise_returns_ok_after_linking() {
+        let repo = repo_with_linked_pair().await;
+        let resp = api_graph(
+            State(repo),
+            Query(GraphQuery {
+                mode: Some("pairwise".to_string()),
+                max_identifier_nodes: Some(50),
+                max_evidence_nodes: None,
+                fan_out_cap: Some(50),
+                max_pairwise_links: Some(500),
+                linkage_params: None,
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_string(resp).await;
+        assert!(body.contains("\"graph_mode\""));
+        assert!(body.contains("pairwise"));
     }
 }

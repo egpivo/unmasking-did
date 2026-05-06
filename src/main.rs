@@ -954,6 +954,7 @@ async fn run_add_did_document(
 mod tests {
     use super::*;
     use clap::Parser;
+    use sqlx::query_scalar;
     use unmasking_did::ingest_common::classify_owner_probe;
     use unmasking_did::storage::{connect, run_migrations};
 
@@ -1346,5 +1347,314 @@ mod tests {
         .await
         .unwrap_err();
         assert!(err.to_string().contains("unknown ablation mode"));
+    }
+
+    #[tokio::test]
+    async fn run_metrics_errors_without_clustering() {
+        let repo = test_repo().await;
+        let err = run_metrics(&repo, 0.5).await.unwrap_err();
+        assert!(err.to_string().contains("no clustering runs"));
+    }
+
+    #[tokio::test]
+    async fn run_report_errors_without_clustering() {
+        let repo = test_repo().await;
+        let err = run_report(&repo, "markdown".to_string(), 0.5)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("no clustering runs"));
+    }
+
+    #[tokio::test]
+    async fn run_link_errors_when_no_addresses_known() {
+        let repo = test_repo().await;
+        let err = run_link(
+            &repo,
+            vec![],
+            1,
+            &FundedByMergePolicy::legacy_disabled(),
+            "test_profile",
+            "arbitrum",
+            "monthly",
+            0,
+            0,
+            0.5,
+            0.1,
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("no addresses to cluster"));
+    }
+
+    #[tokio::test]
+    async fn run_add_ens_record_stores_when_one_field_set() {
+        let repo = test_repo().await;
+        run_add_ens_record(
+            &repo,
+            "0x1111111111111111111111111111111111111111".to_string(),
+            None,
+            Some("@x".to_string()),
+            None,
+            None,
+        )
+        .await
+        .expect("ens");
+        let rows = repo
+            .ens_records_for(&["0x1111111111111111111111111111111111111111".to_string()])
+            .await
+            .expect("lookup");
+        assert_eq!(rows[0].twitter.as_deref(), Some("@x"));
+    }
+
+    #[tokio::test]
+    async fn run_add_did_document_accepts_explicit_did() {
+        let repo = test_repo().await;
+        run_add_did_document(
+            &repo,
+            "0x3333333333333333333333333333333333333333".to_string(),
+            "0x4444444444444444444444444444444444444444".to_string(),
+            "ethr".to_string(),
+            Some("did:manual:example".to_string()),
+            None,
+        )
+        .await
+        .expect("did");
+        let docs = repo
+            .did_documents_for(&["0x3333333333333333333333333333333333333333".to_string()])
+            .await
+            .expect("q");
+        assert_eq!(docs[0].did, "did:manual:example");
+    }
+
+    #[tokio::test]
+    async fn run_report_accepts_md_alias() {
+        let repo = test_repo().await;
+        let a1 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string();
+        let a2 = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string();
+        let owner = "0xcccccccccccccccccccccccccccccccccccccccc".to_string();
+        run_add_safe_owner(&repo, a1.clone(), owner.clone(), false, Some(2), Some(10))
+            .await
+            .expect("owner1");
+        run_add_safe_owner(&repo, a2.clone(), owner, false, Some(2), Some(11))
+            .await
+            .expect("owner2");
+        let policy = FundedByMergePolicy {
+            enabled: true,
+            service_fan_out_cap: 50,
+            min_shared_keys: 2,
+            min_short_burst_hits: 2,
+            short_burst_block_delta: 5_000,
+        };
+        run_link(
+            &repo,
+            vec![a1, a2],
+            1,
+            &policy,
+            "test_profile",
+            "arbitrum",
+            "monthly",
+            100,
+            200,
+            0.9,
+            0.5,
+        )
+        .await
+        .expect("run_link");
+        run_report(&repo, "md".to_string(), 0.5)
+            .await
+            .expect("md report");
+    }
+
+    #[tokio::test]
+    async fn run_eval_runs_suite_on_temp_gold() {
+        let repo = test_repo().await;
+        let safe_a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let safe_b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let owner = "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0";
+        run_add_safe_owner(
+            &repo,
+            safe_a.to_string(),
+            owner.to_string(),
+            false,
+            Some(2),
+            Some(100),
+        )
+        .await
+        .expect("so1");
+        run_add_safe_owner(
+            &repo,
+            safe_b.to_string(),
+            owner.to_string(),
+            false,
+            Some(2),
+            Some(101),
+        )
+        .await
+        .expect("so2");
+        repo.upsert_address(safe_a, None).await.expect("a");
+        repo.upsert_address(safe_b, None).await.expect("b");
+        link_and_persist_with_fanout(
+            &repo,
+            &[safe_a.into(), safe_b.into()],
+            1,
+            FAN_OUT_CAP,
+            None,
+            &FundedByMergePolicy::legacy_disabled(),
+        )
+        .await
+        .expect("link");
+
+        let gold_path = std::env::temp_dir().join(format!(
+            "unmasking_main_eval_gold_{}.csv",
+            std::process::id()
+        ));
+        std::fs::write(
+            &gold_path,
+            format!("address_a,address_b,label,rationale\n{safe_a},{safe_b},same_control,test\n"),
+        )
+        .expect("gold");
+        run_eval(
+            &repo,
+            gold_path.to_string_lossy().to_string(),
+            1,
+            "safe_owner_only".to_string(),
+            None,
+        )
+        .await
+        .expect("eval");
+        let _ = std::fs::remove_file(&gold_path);
+    }
+
+    #[tokio::test]
+    async fn run_link_second_pass_with_window_inserts_lineage_when_profile_matches() {
+        let repo = test_repo().await;
+        let a1 = "0x1111111111111111111111111111111111111111".to_string();
+        let a2 = "0x2222222222222222222222222222222222222222".to_string();
+        let shared_owner = "0x3333333333333333333333333333333333333333".to_string();
+        run_add_safe_owner(
+            &repo,
+            a1.clone(),
+            shared_owner.clone(),
+            false,
+            Some(2),
+            Some(10),
+        )
+        .await
+        .expect("a1");
+        run_add_safe_owner(&repo, a2.clone(), shared_owner, false, Some(2), Some(11))
+            .await
+            .expect("a2");
+        let policy = FundedByMergePolicy {
+            enabled: true,
+            service_fan_out_cap: 50,
+            min_shared_keys: 2,
+            min_short_burst_hits: 2,
+            short_burst_block_delta: 5_000,
+        };
+        let addrs = vec![a1.clone(), a2.clone()];
+        run_link(
+            &repo,
+            addrs.clone(),
+            1,
+            &policy,
+            "lineage_prof",
+            "arbitrum",
+            "monthly",
+            100,
+            200,
+            0.9,
+            0.5,
+        )
+        .await
+        .expect("first link");
+        run_link(
+            &repo,
+            addrs,
+            1,
+            &policy,
+            "lineage_prof",
+            "arbitrum",
+            "monthly",
+            300,
+            400,
+            0.9,
+            0.5,
+        )
+        .await
+        .expect("second link");
+
+        let run2 = repo.latest_clustering_run().await.expect("q").expect("run");
+        let lineage_count: i64 =
+            query_scalar("SELECT COUNT(*) FROM cluster_lineage WHERE run_id_current = ?1")
+                .bind(&run2.run_id)
+                .fetch_one(repo.pool())
+                .await
+                .expect("count");
+        assert!(lineage_count >= 1);
+    }
+
+    #[tokio::test]
+    async fn run_score_pairs_empty_input_uses_known_addresses() {
+        let repo = test_repo().await;
+        let a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        repo.upsert_address(a, None).await.expect("addr");
+        run_score_pairs(&repo, vec![], 50, None, None)
+            .await
+            .expect("score");
+    }
+
+    #[tokio::test]
+    async fn run_export_graph_pairwise_with_explicit_linkage_params_path() {
+        let repo = test_repo().await;
+        let a1 = "0x1111111111111111111111111111111111111111".to_string();
+        let a2 = "0x2222222222222222222222222222222222222222".to_string();
+        let shared_owner = "0x3333333333333333333333333333333333333333".to_string();
+        run_add_safe_owner(
+            &repo,
+            a1.clone(),
+            shared_owner.clone(),
+            false,
+            Some(2),
+            Some(10),
+        )
+        .await
+        .expect("a1");
+        run_add_safe_owner(&repo, a2.clone(), shared_owner, false, Some(2), Some(11))
+            .await
+            .expect("a2");
+        let policy = FundedByMergePolicy {
+            enabled: true,
+            service_fan_out_cap: 50,
+            min_shared_keys: 2,
+            min_short_burst_hits: 2,
+            short_burst_block_delta: 5_000,
+        };
+        run_link(
+            &repo,
+            vec![a1, a2],
+            1,
+            &policy,
+            "test_profile",
+            "arbitrum",
+            "monthly",
+            100,
+            200,
+            0.9,
+            0.5,
+        )
+        .await
+        .expect("link");
+        run_export_graph(
+            &repo,
+            "out/test_main_pairwise_explicit_params.json".to_string(),
+            "pairwise".to_string(),
+            50,
+            50,
+            50,
+            100,
+            Some("data/linkage_params.default.json".to_string()),
+        )
+        .await
+        .expect("export pairwise");
     }
 }

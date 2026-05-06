@@ -102,6 +102,10 @@ fn arbitrum_alchemy_base_url_trims_and_defaults() {
     std::env::set_var("ARBITRUM_ALCHEMY_BASE_URL", "  https://custom.example/v2  ");
     let url = arbitrum_alchemy_base_url_from_env();
     assert_eq!(url, "https://custom.example/v2");
+
+    std::env::set_var("ARBITRUM_ALCHEMY_BASE_URL", "   ");
+    let url = arbitrum_alchemy_base_url_from_env();
+    assert_eq!(url, DEFAULT_ARBITRUM_ALCHEMY_BASE_URL);
     snap.restore();
 }
 

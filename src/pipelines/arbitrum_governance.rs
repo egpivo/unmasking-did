@@ -1442,4 +1442,40 @@ mod tests {
             .to_string()
             .contains("current cluster map is required when lineage is enabled"));
     }
+
+    #[test]
+    fn cleanup_partial_removes_sqlite_db_and_output_artifacts() {
+        let tmp = std::env::temp_dir().join(format!(
+            "arb_gov_cleanup_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        let db = tmp.join("partial.db");
+        std::fs::write(&db, b"x").expect("db");
+        let report = tmp.join("r.md");
+        std::fs::write(&report, b"x").expect("report");
+        let graph = tmp.join("g.json");
+        std::fs::write(&graph, b"x").expect("graph");
+        let summary = tmp.join("s.json");
+        std::fs::write(&summary, b"x").expect("summary");
+        let paths = ArbitrumGovPaths {
+            governance_csv: PathBuf::from(""),
+            control_csv: PathBuf::from(""),
+            phase1b_json: PathBuf::from(""),
+            database_url: format!("sqlite://{}", db.display()),
+            report_md: report.clone(),
+            graph_json: graph.clone(),
+            summary_json: summary.clone(),
+            funder_denylist_txt: None,
+        };
+        cleanup_partial_arbitrum_gov_artifacts(&paths);
+        assert!(!db.exists());
+        assert!(!report.exists());
+        assert!(!graph.exists());
+        assert!(!summary.exists());
+    }
 }

@@ -229,3 +229,134 @@ pub struct EvalSuiteReport {
     pub min_evidence: usize,
     pub ablations: Vec<AblationReport>,
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::eval::ablation::AblationMode;
+    use crate::linking::{link_and_persist, LinkageParams};
+    use crate::safe::SafeOwner;
+    use crate::storage::{connect, run_migrations, Repo};
+
+    fn safe_row(safe: &str, owner: &str) -> SafeOwner {
+        SafeOwner {
+            safe_address: safe.to_string(),
+            owner_address: owner.to_string(),
+            owner_is_safe: false,
+            threshold: Some(2),
+            observed_block: Some(100),
+            source: "test".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn run_ablation_tracks_confusion_and_precision_at_k() {
+        let pool = connect("sqlite::memory:").await.expect("connect");
+        run_migrations(&pool).await.expect("migrate");
+        let repo = Repo::new(pool);
+
+        let safe_a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let safe_b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let owner = "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0";
+        let lonely = "0xdddddddddddddddddddddddddddddddddddddddd";
+        let other = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+        repo.upsert_safe_owner(&safe_row(safe_a, owner))
+            .await
+            .expect("so1");
+        repo.upsert_safe_owner(&safe_row(safe_b, owner))
+            .await
+            .expect("so2");
+        repo.upsert_address(safe_a, None).await.expect("a");
+        repo.upsert_address(safe_b, None).await.expect("b");
+        repo.upsert_address(lonely, None).await.expect("l");
+        repo.upsert_address(other, None).await.expect("o");
+
+        link_and_persist(&repo, &[safe_a.into(), safe_b.into()], 1)
+            .await
+            .expect("link populates evidence");
+
+        let gold = vec![
+            GoldPair {
+                address_a: safe_a.to_string(),
+                address_b: safe_b.to_string(),
+                label: GoldLabel::SameControl,
+                rationale: "shared owner".to_string(),
+            },
+            GoldPair {
+                address_a: lonely.to_string(),
+                address_b: other.to_string(),
+                label: GoldLabel::DifferentControl,
+                rationale: "no evidence".to_string(),
+            },
+            GoldPair {
+                address_a: safe_a.to_string(),
+                address_b: lonely.to_string(),
+                label: GoldLabel::Uncertain,
+                rationale: "mixed".to_string(),
+            },
+        ];
+
+        let params = LinkageParams::bundled_default().expect("params");
+        let report = run_ablation(&repo, &gold, AblationMode::SafeOwnerOnly, 1, &params)
+            .await
+            .expect("ablation");
+
+        assert_eq!(report.pair_rows.len(), 3);
+        assert!(report.precision_at_k.contains_key("p@1"));
+        assert!(
+            report.pairwise_vs_gold.ambiguous >= 1,
+            "uncertain gold should bump ambiguous"
+        );
+        assert!(
+            report.rule_merge_vs_gold.tp >= 1,
+            "same_control should merge on safe_owner"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_eval_suite_runs_multiple_modes() {
+        let pool = connect("sqlite::memory:").await.expect("connect");
+        run_migrations(&pool).await.expect("migrate");
+        let repo = Repo::new(pool);
+
+        let safe_a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let safe_b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let owner = "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0";
+        repo.upsert_safe_owner(&safe_row(safe_a, owner))
+            .await
+            .expect("so1");
+        repo.upsert_safe_owner(&safe_row(safe_b, owner))
+            .await
+            .expect("so2");
+        repo.upsert_address(safe_a, None).await.expect("a");
+        repo.upsert_address(safe_b, None).await.expect("b");
+
+        let gold_path =
+            std::env::temp_dir().join(format!("unmasking_eval_suite_{}.csv", std::process::id()));
+        std::fs::write(
+            &gold_path,
+            format!("address_a,address_b,label,rationale\n{safe_a},{safe_b},same_control,x\n"),
+        )
+        .expect("gold");
+
+        let params = LinkageParams::bundled_default().expect("params");
+        let suite = run_eval_suite(
+            &repo,
+            Path::new(&gold_path),
+            &[AblationMode::SafeOwnerOnly, AblationMode::FundedByOnly],
+            1,
+            &params,
+        )
+        .await
+        .expect("suite");
+        let _ = std::fs::remove_file(&gold_path);
+
+        assert_eq!(suite.gold_pair_count, 1);
+        assert_eq!(suite.ablations.len(), 2);
+        assert_eq!(suite.ablations[0].ablation, "safe_owner_only");
+        assert_eq!(suite.ablations[1].ablation, "funded_by_only");
+    }
+}

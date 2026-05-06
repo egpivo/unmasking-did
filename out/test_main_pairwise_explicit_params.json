@@ -1,7 +1,7 @@
 {
   "graph_mode": "pairwise",
   "run": {
-    "run_id": "run-1778042258031304",
+    "run_id": "run-1778042258021519",
     "started_at": "2026-05-06 04:37:38",
     "params": {
       "address_count": 2,
@@ -49,7 +49,7 @@
     }
   ],
   "limits": {
-    "max_identifier_nodes": 100,
+    "max_identifier_nodes": 50,
     "max_evidence_nodes": 0,
     "depth": 1,
     "fan_out_cap": 50,
@@ -57,11 +57,11 @@
     "truncated_evidence": false,
     "applied_filters": [
       "graph_mode = pairwise",
-      "linkage_params = bundled data/linkage_params.default.json",
+      "linkage_params = data/linkage_params.default.json",
       "fan_out_cap = 50 (run-level, before identifier truncation)",
       "max_pairwise_candidate_pairs = 100"
     ],
     "max_pairwise_links": 100,
-    "linkage_params_source": "bundled data/linkage_params.default.json"
+    "linkage_params_source": "data/linkage_params.default.json"
   }
 }

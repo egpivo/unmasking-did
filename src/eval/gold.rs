@@ -105,6 +105,93 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gold_label_parse_and_as_str() {
+        assert_eq!(
+            GoldLabel::parse(" SAME_CONTROL ").unwrap(),
+            GoldLabel::SameControl
+        );
+        assert_eq!(
+            GoldLabel::parse("different_control").unwrap(),
+            GoldLabel::DifferentControl
+        );
+        assert_eq!(GoldLabel::parse("uncertain").unwrap(), GoldLabel::Uncertain);
+        assert!(GoldLabel::parse("nope")
+            .unwrap_err()
+            .to_string()
+            .contains("unknown gold"));
+        assert_eq!(GoldLabel::SameControl.as_str(), "same_control");
+    }
+
+    #[test]
+    fn normalize_eth_address_errors() {
+        assert!(normalize_eth_address("0xabc")
+            .unwrap_err()
+            .to_string()
+            .contains("40 hex"));
+        assert!(
+            normalize_eth_address("0xgggggggggggggggggggggggggggggggggggggggg")
+                .unwrap_err()
+                .to_string()
+                .contains("non-hex")
+        );
+    }
+
+    #[test]
+    fn load_gold_pairs_sorts_and_skips_self_pairs() {
+        let path = std::env::temp_dir().join(format!(
+            "unmasking_did_gold_sort_{}.csv",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "address_a,address_b,label,rationale\n\
+             0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,same_control,r1\n\
+             0xcccccccccccccccccccccccccccccccccccccccc,0xcccccccccccccccccccccccccccccccccccccccc,same_control,skip-self\n\
+             0xdddddddddddddddddddddddddddddddddddddddd,0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee,different_control,r2\n",
+        )
+        .unwrap();
+        let pairs = load_gold_pairs(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(
+            pairs[0].address_a,
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
+        assert_eq!(
+            pairs[0].address_b,
+            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        );
+        assert_eq!(pairs[1].label, GoldLabel::DifferentControl);
+    }
+
+    #[test]
+    fn union_addresses_is_sorted_unique() {
+        let gold = vec![
+            GoldPair {
+                address_a: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+                address_b: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+                label: GoldLabel::Uncertain,
+                rationale: String::new(),
+            },
+            GoldPair {
+                address_a: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+                address_b: "0xcccccccccccccccccccccccccccccccccccccccc".to_string(),
+                label: GoldLabel::Uncertain,
+                rationale: String::new(),
+            },
+        ];
+        let u = union_addresses(&gold);
+        assert_eq!(
+            u,
+            vec![
+                "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+                "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+                "0xcccccccccccccccccccccccccccccccccccccccc".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn parses_csv_round_trip() {
         let path = std::env::temp_dir().join(format!(
             "unmasking_did_gold_test_{}.csv",

@@ -84,3 +84,87 @@ impl AblationMode {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::evidence::{Attestation, Strength};
+
+    fn att(kind: EvidenceKind) -> Attestation {
+        Attestation {
+            address: "0x1".to_string(),
+            kind,
+            key: "k".to_string(),
+            strength: Strength::Medium,
+            source: "test".to_string(),
+            observed_block: 1,
+            payload_json: None,
+        }
+    }
+
+    #[test]
+    fn parse_aliases_and_errors() {
+        assert_eq!(
+            AblationMode::parse("all").unwrap(),
+            AblationMode::AllEvidence
+        );
+        assert_eq!(
+            AblationMode::parse(" ALL_EVIDENCE ").unwrap(),
+            AblationMode::AllEvidence
+        );
+        assert_eq!(
+            AblationMode::parse("safe_owner+funded_by").unwrap(),
+            AblationMode::SafeOwnerAndFundedBy
+        );
+        assert_eq!(
+            AblationMode::parse("no_ens").unwrap(),
+            AblationMode::WithoutEns
+        );
+        let err = AblationMode::parse("nope").unwrap_err();
+        assert!(err.to_string().contains("unknown ablation"));
+    }
+
+    #[test]
+    fn parse_list_all_and_csv() {
+        let all = AblationMode::parse_list("all").unwrap();
+        assert_eq!(all, AblationMode::preset_matrix());
+        let two = AblationMode::parse_list("safe_owner_only, did_controller_only ").unwrap();
+        assert_eq!(two.len(), 2);
+        assert_eq!(two[0], AblationMode::SafeOwnerOnly);
+        assert_eq!(two[1], AblationMode::DidControllerOnly);
+        assert!(AblationMode::parse_list("bad").is_err());
+    }
+
+    #[test]
+    fn preset_matrix_covers_all_as_str_variants() {
+        for m in AblationMode::preset_matrix() {
+            let round = AblationMode::parse(m.as_str()).unwrap();
+            assert_eq!(round, m);
+        }
+    }
+
+    #[test]
+    fn filter_per_mode() {
+        let kinds = [
+            EvidenceKind::SafeOwner,
+            EvidenceKind::DidController,
+            EvidenceKind::FundedBy,
+            EvidenceKind::EnsHandle,
+        ];
+        let atts: Vec<_> = kinds.iter().copied().map(att).collect();
+
+        assert_eq!(AblationMode::AllEvidence.filter(&atts).len(), 4);
+        assert_eq!(AblationMode::SafeOwnerOnly.filter(&atts).len(), 1);
+        assert_eq!(AblationMode::DidControllerOnly.filter(&atts).len(), 1);
+        assert_eq!(AblationMode::FundedByOnly.filter(&atts).len(), 1);
+        assert_eq!(AblationMode::EnsHandleOnly.filter(&atts).len(), 1);
+        let sf = AblationMode::SafeOwnerAndFundedBy.filter(&atts);
+        assert_eq!(sf.len(), 2);
+        assert!(sf
+            .iter()
+            .all(|a| matches!(a.kind, EvidenceKind::SafeOwner | EvidenceKind::FundedBy)));
+        let no_ens = AblationMode::WithoutEns.filter(&atts);
+        assert_eq!(no_ens.len(), 3);
+        assert!(!no_ens.iter().any(|a| a.kind == EvidenceKind::EnsHandle));
+    }
+}

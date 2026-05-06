@@ -30,3 +30,21 @@ impl EnsSubgraph {
         Ok(None)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_and_endpoint() {
+        let g = EnsSubgraph::new("https://example.com/subgraph");
+        assert_eq!(g.endpoint(), "https://example.com/subgraph");
+    }
+
+    #[tokio::test]
+    async fn lookup_returns_none_stub() {
+        let g = EnsSubgraph::new("https://example.com/subgraph");
+        let r = g.lookup("0x0000000000000000000000000000000000000001").await;
+        assert!(r.expect("ok").is_none());
+    }
+}
