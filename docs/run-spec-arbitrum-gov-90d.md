@@ -262,7 +262,7 @@ Mitigations:
 
 ## Phase 2 CLI (pre-merge validation)
 
-Phase 2 is implemented as `cargo run -- phase2-arbitrum-gov` (see `src/phase2_arbitrum_gov.rs`). Until a full ingest + link completes successfully, **do not** treat outputs as findings or publish article claims.
+The Arbitrum governance cohort pipeline is implemented as `cargo run -- arbitrum-gov` (see `src/pipelines/arbitrum_governance.rs`). Until a full ingest + link completes successfully, **do not** treat outputs as findings or publish article claims.
 
 ### 1) No seed expansion (code + CSV contract)
 
@@ -271,7 +271,7 @@ Phase 2 is implemented as `cargo run -- phase2-arbitrum-gov` (see `src/phase2_ar
 
 ### 2) Snapshot hash preserved
 
-- Phase 2 reads **`input_snapshot_hash`** from `out/phase1b_arbitrum_gov_seed_quality.json` (default `--phase1b-json` path) and copies it into the Markdown report and `out/phase2_arbitrum_gov_summary.json` unchanged.
+- The pipeline reads **`input_snapshot_hash`** from `out/phase1b_arbitrum_gov_seed_quality.json` (default `--phase1b-json` path) and copies it into the Markdown report and `out/arbitrum_gov_summary.json` unchanged.
 - Phase 1b value (frozen for this run): `9bbba872b5590936fd6ac9cb046e6e85a7eeb315d8b2351d188d69ea285219bb`.
 
 ### 3) Conservative language (Phase 2 artifacts)
@@ -283,9 +283,9 @@ Phase 2 is implemented as `cargo run -- phase2-arbitrum-gov` (see `src/phase2_ar
 | Artifact | Default path |
 |----------|----------------|
 | SQLite DB | `data/unmask_arbitrum_gov_v1.db` (`--database` or full `sqlite://…` URL) |
-| Markdown report | `out/phase2_arbitrum_gov_report.md` |
-| Graph JSON (D3) | `out/phase2_arbitrum_gov.graph.json` |
-| Run summary JSON | `out/phase2_arbitrum_gov_summary.json` |
+| Markdown report | `out/arbitrum_gov_report.md` |
+| Graph JSON (D3) | `out/arbitrum_gov.graph.json` |
+| Run summary JSON | `out/arbitrum_gov_summary.json` |
 
 Seeds (read-only): `data/seeds/arbitrum_gov_90d_governance_stratified500.csv`, `data/seeds/arbitrum_gov_90d_control_stratified500.csv`.
 

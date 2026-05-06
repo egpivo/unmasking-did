@@ -89,8 +89,8 @@ impl Config {
     }
 
     /// Same as [`from_env`], but accepts `ARBITRUM_ALCHEMY_API_KEY` when `ALCHEMY_API_KEY`
-    /// is unset — used only by `phase2-arbitrum-gov` so Arbitrum-only `.env` files work.
-    pub fn from_env_for_phase2() -> Result<Self> {
+    /// is unset — used only by `arbitrum-gov` so Arbitrum-only `.env` files work.
+    pub fn from_env_for_arbitrum_gov() -> Result<Self> {
         let _ = dotenvy::dotenv();
         let (alchemy_api_key, _) = arbitrum_alchemy_api_key_from_env()?;
         let alchemy_base_url = std::env::var("ALCHEMY_BASE_URL")

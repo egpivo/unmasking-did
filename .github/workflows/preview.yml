@@ -4,9 +4,9 @@ on:
   pull_request:
     paths:
       - "viewer/**"
-      - "out/phase2_arbitrum_gov_summary.json"
-      - "out/phase2_arbitrum_gov.graph.json"
-      - "out/phase2_arbitrum_gov_report.md"
+      - "out/arbitrum_gov_summary.json"
+      - "out/arbitrum_gov.graph.json"
+      - "out/arbitrum_gov_report.md"
       - "index.html"
       - ".github/workflows/preview.yml"
 
@@ -23,9 +23,9 @@ jobs:
           mkdir -p site/viewer site/out
           cp -R viewer/* site/viewer/
           cp index.html site/index.html
-          cp out/phase2_arbitrum_gov_summary.json site/out/
-          cp out/phase2_arbitrum_gov.graph.json site/out/
-          cp out/phase2_arbitrum_gov_report.md site/out/
+          cp out/arbitrum_gov_summary.json site/out/
+          cp out/arbitrum_gov.graph.json site/out/
+          cp out/arbitrum_gov_report.md site/out/
 
       - name: Upload preview artifact
         uses: actions/upload-artifact@v4

@@ -114,6 +114,30 @@ fn into_owners(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    async fn serve_once(status: &str, body: &str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let status_line = status.to_string();
+        let body_text = body.to_string();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buf = [0_u8; 2048];
+            let _ = stream.read(&mut buf).await;
+            let resp = format!(
+                "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body_text.len(),
+                body_text
+            );
+            stream
+                .write_all(resp.as_bytes())
+                .await
+                .expect("write resp");
+        });
+        format!("http://{}", addr)
+    }
 
     #[test]
     fn parses_safe_info_response() {
@@ -155,5 +179,49 @@ mod tests {
         assert_eq!(owners.len(), 1);
         assert_eq!(owners[0].threshold, None);
         assert_eq!(owners[0].observed_block, None);
+    }
+
+    #[tokio::test]
+    async fn fetch_owners_returns_none_on_404() {
+        let base = serve_once("404 Not Found", "{}").await;
+        let resolver = SafeResolver::new(base);
+        let out = resolver
+            .fetch_owners("0x1111111111111111111111111111111111111111", Some(10))
+            .await
+            .expect("fetch");
+        assert!(out.is_none());
+    }
+
+    #[tokio::test]
+    async fn fetch_owners_errors_on_http_failure() {
+        let base = serve_once("500 Internal Server Error", "{}").await;
+        let resolver = SafeResolver::new(base);
+        let err = resolver
+            .fetch_owners("0x1111111111111111111111111111111111111111", Some(10))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("returned HTTP 500"));
+    }
+
+    #[tokio::test]
+    async fn fetch_owners_parses_owner_list_on_success() {
+        let base = serve_once(
+            "200 OK",
+            r#"{"threshold":2,"owners":["0xC0C0c0c0C0c0c0C0c0c0c0c0C0c0c0c0c0c0C0c0"]}"#,
+        )
+        .await;
+        let resolver = SafeResolver::new(base);
+        let out = resolver
+            .fetch_owners("0x1111111111111111111111111111111111111111", Some(99))
+            .await
+            .expect("fetch")
+            .expect("owners");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].threshold, Some(2));
+        assert_eq!(out[0].observed_block, Some(99));
+        assert_eq!(
+            out[0].owner_address,
+            "0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"
+        );
     }
 }

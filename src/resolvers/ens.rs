@@ -91,6 +91,30 @@ fn clean(s: Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    async fn serve_once(status: &str, body: &str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let status_line = status.to_string();
+        let body_text = body.to_string();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buf = [0_u8; 2048];
+            let _ = stream.read(&mut buf).await;
+            let resp = format!(
+                "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body_text.len(),
+                body_text
+            );
+            stream
+                .write_all(resp.as_bytes())
+                .await
+                .expect("write resp");
+        });
+        format!("http://{}", addr)
+    }
 
     #[test]
     fn parses_full_response() {
@@ -125,5 +149,46 @@ mod tests {
         assert_eq!(r.name, None);
         assert_eq!(r.twitter, None);
         assert_eq!(r.telegram.as_deref(), Some("@joe"));
+    }
+
+    #[tokio::test]
+    async fn resolve_returns_none_on_404() {
+        let base = serve_once("404 Not Found", "{}").await;
+        let resolver = EnsResolver::new(base);
+        let out = resolver
+            .resolve("0x1111111111111111111111111111111111111111")
+            .await
+            .expect("resolve");
+        assert!(out.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_parses_success_payload() {
+        let base = serve_once(
+            "200 OK",
+            r#"{"address":"0x1","name":"alice.eth","twitter":"alice","github":"alicegh","telegram":"  "}"#,
+        )
+        .await;
+        let resolver = EnsResolver::new(base);
+        let out = resolver
+            .resolve("0x1111111111111111111111111111111111111111")
+            .await
+            .expect("resolve")
+            .expect("record");
+        assert_eq!(out.name.as_deref(), Some("alice.eth"));
+        assert_eq!(out.twitter.as_deref(), Some("alice"));
+        assert_eq!(out.github.as_deref(), Some("alicegh"));
+        assert_eq!(out.telegram, None);
+    }
+
+    #[tokio::test]
+    async fn resolve_errors_on_http_failure() {
+        let base = serve_once("500 Internal Server Error", "{}").await;
+        let resolver = EnsResolver::new(base);
+        let err = resolver
+            .resolve("0x1111111111111111111111111111111111111111")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("ens resolve HTTP error"));
     }
 }

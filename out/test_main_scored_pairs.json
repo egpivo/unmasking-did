@@ -1,0 +1,31 @@
+{
+  "address_count": 2,
+  "candidate_pair_count": 1,
+  "linkage_params_source": "bundled data/linkage_params.default.json",
+  "pairs": [
+    {
+      "address_a": "0x1111111111111111111111111111111111111111",
+      "address_b": "0x2222222222222222222222222222222222222222",
+      "contributions": {
+        "safe_owner_min_overlap": 8.0
+      },
+      "deterministic_anchor": false,
+      "features": {
+        "safe_owner_count_a": 1,
+        "safe_owner_count_b": 1,
+        "safe_owner_jaccard": 1.0,
+        "safe_owner_min_overlap": 1.0,
+        "safe_owner_union": 1,
+        "shared_did_controller_keys": 0,
+        "shared_ens_handle_keys": 0,
+        "shared_funder_keys": 0,
+        "shared_funder_keys_list": [],
+        "shared_safe_owner_keys": 1
+      },
+      "has_structural_support": true,
+      "link_probability": 0.8807970779778823,
+      "score": 8.0,
+      "tier": "accepted"
+    }
+  ]
+}

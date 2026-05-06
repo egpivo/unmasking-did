@@ -1035,3 +1035,293 @@ fn parse_shared_evidence_keys(evidence_json: Option<&str>) -> Vec<String> {
         .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_DB_SEQ: AtomicU64 = AtomicU64::new(0);
+
+    fn sample_dataset_run(run_id: &str, profile: &str) -> DatasetRun {
+        DatasetRun {
+            run_id: run_id.to_string(),
+            chain: "arbitrum".to_string(),
+            run_type: "monitor".to_string(),
+            parent_run_id: None,
+            window_start_block: 100,
+            window_end_block: 200,
+            window_start_ts: None,
+            window_end_ts: None,
+            cadence: "monthly".to_string(),
+            seed_spec_json: r#"{"address_count":2}"#.to_string(),
+            params_json: r#"{"min_evidence":1}"#.to_string(),
+            input_snapshot_hash: "hash".to_string(),
+            code_commit: "commit".to_string(),
+            policy_profile_id: profile.to_string(),
+            stable_threshold: 0.9,
+            related_threshold: 0.5,
+            notes: None,
+        }
+    }
+
+    async fn test_repo() -> Repo {
+        let seq = TEST_DB_SEQ.fetch_add(1, Ordering::Relaxed);
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let db_url = format!("sqlite://data/test_repo_unit_{seq}_{ts}.db");
+        let pool = connect(&db_url).await.expect("connect");
+        run_migrations(&pool).await.expect("migrations");
+        Repo::new(pool)
+    }
+
+    #[test]
+    fn parse_shared_evidence_keys_handles_missing_invalid_and_valid_payload() {
+        assert!(parse_shared_evidence_keys(None).is_empty());
+        assert!(parse_shared_evidence_keys(Some("not-json")).is_empty());
+        assert!(parse_shared_evidence_keys(Some(r#"{"foo":1}"#)).is_empty());
+        assert_eq!(
+            parse_shared_evidence_keys(Some(
+                r#"{"shared_evidence_keys":["a","b","c"]}"#
+            )),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn incoming_funders_groups_by_funder_and_uses_earliest_block() {
+        let repo = test_repo().await;
+        let to = "0x1111111111111111111111111111111111111111";
+        let funder_a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let funder_b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        repo.insert_transfer(&Transfer {
+            from_addr: funder_a.to_string(),
+            to_addr: to.to_string(),
+            value: None,
+            block_num: Some(42),
+            tx_hash: Some("0x1".to_string()),
+            asset: Some("ETH".to_string()),
+        })
+        .await
+        .expect("insert transfer 1");
+        repo.insert_transfer(&Transfer {
+            from_addr: funder_a.to_string(),
+            to_addr: to.to_string(),
+            value: None,
+            block_num: Some(10),
+            tx_hash: Some("0x2".to_string()),
+            asset: Some("ETH".to_string()),
+        })
+        .await
+        .expect("insert transfer 2");
+        repo.insert_transfer(&Transfer {
+            from_addr: funder_b.to_string(),
+            to_addr: to.to_string(),
+            value: None,
+            block_num: None,
+            tx_hash: Some("0x3".to_string()),
+            asset: Some("ETH".to_string()),
+        })
+        .await
+        .expect("insert transfer 3");
+
+        let rows = repo.incoming_funders(to).await.expect("incoming funders");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], (funder_b.to_string(), 0));
+        assert_eq!(rows[1], (funder_a.to_string(), 10));
+    }
+
+    #[tokio::test]
+    async fn replace_attestations_for_kind_is_scoped_by_kind_and_address() {
+        let repo = test_repo().await;
+        let a1 = "0x1111111111111111111111111111111111111111".to_string();
+        let a2 = "0x2222222222222222222222222222222222222222".to_string();
+
+        let inserted = repo
+            .insert_attestations(&[
+                Attestation {
+                    address: a1.clone(),
+                    kind: EvidenceKind::FundedBy,
+                    key: "0xfunder".to_string(),
+                    strength: Strength::Medium,
+                    source: "test".to_string(),
+                    observed_block: 1,
+                    payload_json: None,
+                },
+                Attestation {
+                    address: a1.clone(),
+                    kind: EvidenceKind::SafeOwner,
+                    key: "0xowner".to_string(),
+                    strength: Strength::Strong,
+                    source: "test".to_string(),
+                    observed_block: 2,
+                    payload_json: None,
+                },
+            ])
+            .await
+            .expect("seed attestations");
+        assert_eq!(inserted, 2);
+
+        let replaced = repo
+            .replace_attestations_for_kind(
+                &[a1.clone()],
+                EvidenceKind::FundedBy,
+                &[Attestation {
+                    address: a2.clone(),
+                    kind: EvidenceKind::FundedBy,
+                    key: "0xfunder2".to_string(),
+                    strength: Strength::Medium,
+                    source: "test".to_string(),
+                    observed_block: 3,
+                    payload_json: None,
+                }],
+            )
+            .await
+            .expect("replace funded_by");
+        assert_eq!(replaced, 1);
+
+        let all = repo
+            .attestations_for(&[a1, a2])
+            .await
+            .expect("attestations");
+        assert_eq!(all.len(), 2, "safe_owner should remain, funded_by should be replaced");
+        assert!(all.iter().any(|a| a.kind == EvidenceKind::SafeOwner));
+        assert!(all.iter().any(|a| a.key == "0xfunder2"));
+    }
+
+    #[tokio::test]
+    async fn dataset_runs_and_aux_tables_round_trip() {
+        let repo = test_repo().await;
+        repo.start_dataset_run(&sample_dataset_run("run-1", "p1"))
+            .await
+            .expect("run-1");
+        repo.start_dataset_run(&sample_dataset_run("run-2", "p2"))
+            .await
+            .expect("run-2");
+        repo.start_dataset_run(&sample_dataset_run("run-0", "p1"))
+            .await
+            .expect("run-0");
+
+        let latest_chain = repo
+            .latest_dataset_run_for_chain("arbitrum")
+            .await
+            .expect("latest chain")
+            .expect("some run");
+        assert_eq!(latest_chain.run_id, "run-2");
+
+        let latest_profile = repo
+            .latest_dataset_run_for_chain_profile("arbitrum", "p1")
+            .await
+            .expect("latest profile")
+            .expect("some run");
+        assert_eq!(latest_profile.run_id, "run-1");
+
+        let none = repo
+            .latest_dataset_run_for_chain_profile("arbitrum", "missing")
+            .await
+            .expect("query missing");
+        assert!(none.is_none());
+
+        let inserted_inputs = repo
+            .insert_run_inputs(
+                "run-1",
+                &[RunInputRow {
+                    input_type: "seed".to_string(),
+                    input_ref: "addr-list".to_string(),
+                    source: "unit-test".to_string(),
+                    metadata_json: Some(r#"{"n":2}"#.to_string()),
+                }],
+            )
+            .await
+            .expect("insert run input");
+        assert_eq!(inserted_inputs, 1);
+
+        repo.upsert_run_metrics(&RunMetricsRow {
+            run_id: "run-1".to_string(),
+            num_seed_inputs: 1,
+            num_seed_addresses: 2,
+            num_addresses_total: 2,
+            num_transfers: 3,
+            num_evidence_rows: 4,
+            num_clusters: 2,
+            num_multi_address_clusters: 1,
+            top_cluster_size: 2,
+            metadata_json: None,
+        })
+        .await
+        .expect("upsert run metrics");
+
+        repo.upsert_cluster_metrics(&ClusterMetricsRow {
+            run_id: "run-1".to_string(),
+            cluster_id: "c1".to_string(),
+            num_addresses: 2,
+            num_identifiers: 2,
+            num_evidence_rows: 3,
+            num_unique_funders: Some(1),
+            top_funder: Some("0xf".to_string()),
+            top_funder_share: Some(0.9),
+            first_funder_shared_count: Some(2),
+            funding_block_min: Some(10),
+            funding_block_max: Some(12),
+            funding_block_span: Some(2),
+            funding_burst_label: Some("short".to_string()),
+            shared_safe_owner_count: Some(1),
+            control_link_density: Some(0.8),
+            num_unique_sinks: Some(1),
+            top_sink: Some("0xs".to_string()),
+            top_sink_share: Some(0.9),
+            possible_consolidation: Some(true),
+            coordination_tier: "medium".to_string(),
+            coordination_reasons_json: Some(r#"["funded_by"]"#.to_string()),
+        })
+        .await
+        .expect("upsert cluster metrics");
+
+        let lineage_n = repo
+            .insert_cluster_lineage_rows(&[ClusterLineageRow {
+                run_id_current: Some("run-1".to_string()),
+                cluster_id_current: Some("c1".to_string()),
+                run_id_previous: Some("run-0".to_string()),
+                cluster_id_previous: Some("c0".to_string()),
+                overlap_count: 2,
+                jaccard: 0.5,
+                transition_label: "related".to_string(),
+            }])
+            .await
+            .expect("insert lineage");
+        assert_eq!(lineage_n, 1);
+
+        let artifacts_n = repo
+            .insert_graph_export_artifacts(&[GraphExportArtifact {
+                run_id: "run-1".to_string(),
+                artifact_type: "graph_json".to_string(),
+                path: "out/x.json".to_string(),
+                sha256: "abc".to_string(),
+                metadata_json: None,
+            }])
+            .await
+            .expect("insert artifacts");
+        assert_eq!(artifacts_n, 1);
+    }
+
+    #[tokio::test]
+    async fn clusters_for_run_map_groups_addresses() {
+        let repo = test_repo().await;
+        repo.start_clustering_run("r1", "{}")
+            .await
+            .expect("start clustering run");
+        repo.insert_cluster("r1", "c1", &["0xa".to_string(), "0xb".to_string()], "{}")
+            .await
+            .expect("insert c1");
+        repo.insert_cluster("r1", "c2", &["0xc".to_string()], "{}")
+            .await
+            .expect("insert c2");
+
+        let map = repo.clusters_for_run_map("r1").await.expect("map");
+        assert_eq!(map.get("c1").map(Vec::len), Some(2));
+        assert_eq!(map.get("c2").map(Vec::len), Some(1));
+    }
+}

@@ -28,6 +28,7 @@ target
 data/*
 !data/.gitkeep
 !data/findings/
+!data/linkage_params.default.json
 *.db
 *.sqlite
 *.sqlite-journal

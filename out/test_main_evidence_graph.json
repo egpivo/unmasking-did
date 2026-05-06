@@ -1,0 +1,106 @@
+{
+  "graph_mode": "evidence",
+  "run": {
+    "run_id": "run-1778040965743885",
+    "started_at": "2026-05-06 04:16:05",
+    "params": {
+      "address_count": 2,
+      "fan_out_cap": 50,
+      "funded_by_policy": {
+        "enabled": true,
+        "min_shared_keys": 2,
+        "min_short_burst_hits": 2,
+        "service_fan_out_cap": 50,
+        "short_burst_block_delta": 5000
+      },
+      "min_evidence": 1
+    }
+  },
+  "nodes": [
+    {
+      "id": "addr:0x1111111111111111111111111111111111111111",
+      "kind": "identifier",
+      "type": "address",
+      "label": "0x1111…1111",
+      "value": "0x1111111111111111111111111111111111111111",
+      "cluster_id": "0x1111111111111111111111111111111111111111"
+    },
+    {
+      "id": "addr:0x2222222222222222222222222222222222222222",
+      "kind": "identifier",
+      "type": "address",
+      "label": "0x2222…2222",
+      "value": "0x2222222222222222222222222222222222222222",
+      "cluster_id": "0x1111111111111111111111111111111111111111"
+    },
+    {
+      "id": "ev:safe_owner:0x3333333333333333333333333333333333333333",
+      "kind": "evidence",
+      "type": "safe_owner",
+      "label": "0x3333…3333",
+      "value": "0x3333333333333333333333333333333333333333",
+      "strength": "medium"
+    }
+  ],
+  "links": [
+    {
+      "source": "addr:0x1111111111111111111111111111111111111111",
+      "target": "ev:safe_owner:0x3333333333333333333333333333333333333333",
+      "type": "safe_owner",
+      "strength": "medium",
+      "first_seen_block": 10,
+      "last_seen_block": 10,
+      "attestation_count": 1
+    },
+    {
+      "source": "addr:0x2222222222222222222222222222222222222222",
+      "target": "ev:safe_owner:0x3333333333333333333333333333333333333333",
+      "type": "safe_owner",
+      "strength": "medium",
+      "first_seen_block": 11,
+      "last_seen_block": 11,
+      "attestation_count": 1
+    }
+  ],
+  "limits": {
+    "max_identifier_nodes": 100,
+    "max_evidence_nodes": 100,
+    "depth": 1,
+    "fan_out_cap": 50,
+    "truncated_identifiers": false,
+    "truncated_evidence": false,
+    "applied_filters": [
+      "fan_out_cap = 50 (computed on full run, before identifier truncation)",
+      "cex_blacklist (applied at extraction in extract_funded_by)",
+      "depth = 1 (no recursion past direct evidence on cluster members)"
+    ]
+  },
+  "evidence_events": [
+    {
+      "identifier_id": "addr:0x1111111111111111111111111111111111111111",
+      "evidence_id": "ev:safe_owner:0x3333333333333333333333333333333333333333",
+      "type": "safe_owner",
+      "strength": "medium",
+      "source": "safe_owners:manual",
+      "observed_block": 10,
+      "counterparty": "0x3333333333333333333333333333333333333333",
+      "payload": {
+        "owner_source": "manual",
+        "threshold": 2
+      }
+    },
+    {
+      "identifier_id": "addr:0x2222222222222222222222222222222222222222",
+      "evidence_id": "ev:safe_owner:0x3333333333333333333333333333333333333333",
+      "type": "safe_owner",
+      "strength": "medium",
+      "source": "safe_owners:manual",
+      "observed_block": 11,
+      "counterparty": "0x3333333333333333333333333333333333333333",
+      "payload": {
+        "owner_source": "manual",
+        "threshold": 2
+      }
+    }
+  ]
+}

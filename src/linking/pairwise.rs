@@ -434,9 +434,11 @@ mod tests {
         ];
         let fanout = fanout_table(&atts);
         let f = pairwise_features(a, b, &atts, &fanout);
-        let mut params = LinkageParams::default();
-        params.t_high = 1.0e9;
-        params.t_low = 1.0e9;
+        let params = LinkageParams {
+            t_high: 1.0e9,
+            t_low: 1.0e9,
+            ..Default::default()
+        };
         let s = score_pair(a, b, &f, &fanout, &params);
         assert!(s.deterministic_anchor);
         assert_eq!(s.tier, LinkTier::Accepted);
@@ -500,5 +502,91 @@ mod tests {
         assert_eq!(p.w_safe_owner_min_overlap, 0.0);
         assert_eq!(p.w_shared_safe_owner_count, 0.0);
         assert_eq!(p.w_safe_owner_jaccard, 8.0);
+    }
+
+    #[test]
+    fn bundled_default_matches_struct_default() {
+        let bundled = LinkageParams::bundled_default().expect("bundled JSON");
+        let dflt = LinkageParams::default();
+        assert_eq!(bundled.t_high, dflt.t_high);
+        assert_eq!(bundled.t_low, dflt.t_low);
+        assert_eq!(bundled.w_did_controller, dflt.w_did_controller);
+        assert_eq!(bundled.w_safe_owner_jaccard, dflt.w_safe_owner_jaccard);
+        assert_eq!(bundled.w_safe_owner_min_overlap, dflt.w_safe_owner_min_overlap);
+        assert_eq!(
+            bundled.w_shared_safe_owner_count,
+            dflt.w_shared_safe_owner_count
+        );
+        assert_eq!(bundled.w_shared_ens_handle, dflt.w_shared_ens_handle);
+        assert_eq!(bundled.w_shared_funder, dflt.w_shared_funder);
+        assert_eq!(
+            bundled.funder_fanout_ln_offset,
+            dflt.funder_fanout_ln_offset
+        );
+        assert_eq!(bundled.link_probability_mid, dflt.link_probability_mid);
+        assert_eq!(
+            bundled.link_probability_scale,
+            dflt.link_probability_scale
+        );
+    }
+
+    #[test]
+    fn from_json_slice_rejects_invalid_json() {
+        let err = LinkageParams::from_json_slice(b"not-json").unwrap_err();
+        assert!(err.to_string().contains("parse linkage params"));
+    }
+
+    #[test]
+    fn score_to_link_probability_clamps_to_unit_interval() {
+        let p = LinkageParams::default();
+        assert!((score_to_link_probability(-1.0e9, &p) - 0.0).abs() < 1e-9);
+        assert!((score_to_link_probability(1.0e9, &p) - 1.0).abs() < 1e-9);
+        let mid = score_to_link_probability(p.link_probability_mid, &p);
+        assert!(mid > 0.45 && mid < 0.55, "logistic at midpoint ~0.5, got {mid}");
+    }
+
+    #[test]
+    fn link_tier_as_str_roundtrip() {
+        assert_eq!(LinkTier::Accepted.as_str(), "accepted");
+        assert_eq!(LinkTier::Uncertain.as_str(), "uncertain");
+        assert_eq!(LinkTier::Rejected.as_str(), "rejected");
+    }
+
+    #[test]
+    fn candidate_address_pairs_emits_shared_funder_pair() {
+        let a = "0x0000000000000000000000000000000000000aa1";
+        let b = "0x0000000000000000000000000000000000000aa2";
+        let funder = "0x0000000000000000000000000000000000000f00";
+        let addresses = vec![a.to_string(), b.to_string()];
+        let atts = vec![
+            att(a, EvidenceKind::FundedBy, funder),
+            att(b, EvidenceKind::FundedBy, funder),
+        ];
+        let pairs = candidate_address_pairs(&addresses, &atts, 100);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].0.to_lowercase(), a.to_lowercase());
+        assert_eq!(pairs[0].1.to_lowercase(), b.to_lowercase());
+    }
+
+    #[test]
+    fn score_address_pairs_sorts_deterministically() {
+        let a = "0x0000000000000000000000000000000000000aa1";
+        let b = "0x0000000000000000000000000000000000000aa2";
+        let c = "0x0000000000000000000000000000000000000aa3";
+        let funder = "0x0000000000000000000000000000000000000f00";
+        let atts = vec![
+            att(a, EvidenceKind::FundedBy, funder),
+            att(b, EvidenceKind::FundedBy, funder),
+            att(c, EvidenceKind::FundedBy, funder),
+        ];
+        let pairs = vec![
+            (b.to_string(), c.to_string()),
+            (a.to_string(), b.to_string()),
+        ];
+        let params = LinkageParams::default();
+        let scored = score_address_pairs(&pairs, &atts, &params);
+        assert_eq!(scored.len(), 2);
+        assert!(scored[0].score >= scored[1].score);
+        assert!(scored[0].address_a < scored[0].address_b);
     }
 }

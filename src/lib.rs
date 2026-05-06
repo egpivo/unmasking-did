@@ -9,7 +9,7 @@ pub mod ingest_common;
 pub mod linking;
 pub mod metrics;
 pub mod monitoring;
-pub mod phase2_arbitrum_gov;
+pub mod pipelines;
 pub mod report;
 pub mod resolvers;
 pub mod safe;

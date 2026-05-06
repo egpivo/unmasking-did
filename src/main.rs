@@ -24,8 +24,8 @@ use unmasking_did::metrics::{gini, nakamoto_coefficient};
 use unmasking_did::monitoring::lineage::{
     cluster_snapshots_from_map, compute_cluster_lineage, should_run_lineage, LineageConfig,
 };
-use unmasking_did::phase2_arbitrum_gov::{
-    cleanup_partial_phase2_artifacts, run_phase2_arbitrum_gov, Phase2Paths,
+use unmasking_did::pipelines::arbitrum_governance::{
+    cleanup_partial_arbitrum_gov_artifacts, run_arbitrum_gov_pipeline, ArbitrumGovPaths,
 };
 use unmasking_did::report::{render_dot, render_markdown, DotInputs, ReportInputs};
 use unmasking_did::resolvers::{EnsResolver, SafeResolver};
@@ -194,9 +194,10 @@ enum Command {
         #[arg(long)]
         out: Option<String>,
     },
-    /// Phase 2 — Arbitrum gov stratified seeds: bounded ingest + link +
+    /// Arbitrum governance + control stratified seeds: bounded ingest + link +
     /// coordination report (isolated SQLite DB; does not modify seed CSVs).
-    Phase2ArbitrumGov {
+    #[command(name = "arbitrum-gov")]
+    ArbitrumGov {
         #[arg(long, default_value = "data/unmask_arbitrum_gov_v1.db")]
         database: String,
         #[arg(
@@ -211,11 +212,11 @@ enum Command {
         control_csv: String,
         #[arg(long, default_value = "out/phase1b_arbitrum_gov_seed_quality.json")]
         phase1b_json: String,
-        #[arg(long, default_value = "out/phase2_arbitrum_gov_report.md")]
+        #[arg(long, default_value = "out/arbitrum_gov_report.md")]
         report_md: String,
-        #[arg(long, default_value = "out/phase2_arbitrum_gov.graph.json")]
+        #[arg(long, default_value = "out/arbitrum_gov.graph.json")]
         graph_json: String,
-        #[arg(long, default_value = "out/phase2_arbitrum_gov_summary.json")]
+        #[arg(long, default_value = "out/arbitrum_gov_summary.json")]
         summary_json: String,
         #[arg(long, default_value_t = 1)]
         min_evidence: usize,
@@ -282,7 +283,7 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     let cfg = match &cli.command {
-        Command::Phase2ArbitrumGov { .. } => Config::from_env_for_phase2()?,
+        Command::ArbitrumGov { .. } => Config::from_env_for_arbitrum_gov()?,
         _ => Config::from_env()?,
     };
 
@@ -394,7 +395,7 @@ async fn main() -> Result<()> {
             ablation,
             linkage_params,
         } => run_eval(&repo, gold, min_evidence, ablation, linkage_params).await,
-        Command::Phase2ArbitrumGov {
+        Command::ArbitrumGov {
             database,
             governance_csv,
             control_csv,
@@ -411,7 +412,7 @@ async fn main() -> Result<()> {
             } else {
                 format!("sqlite://{database}")
             };
-            let paths = Phase2Paths {
+            let paths = ArbitrumGovPaths {
                 governance_csv: governance_csv.into(),
                 control_csv: control_csv.into(),
                 phase1b_json: phase1b_json.into(),
@@ -421,7 +422,7 @@ async fn main() -> Result<()> {
                 summary_json: summary_json.into(),
                 funder_denylist_txt: funder_denylist_txt.map(PathBuf::from),
             };
-            match run_phase2_arbitrum_gov(&cfg, &paths, min_evidence, overwrite_db).await {
+            match run_arbitrum_gov_pipeline(&cfg, &paths, min_evidence, overwrite_db).await {
                 Ok(summary) => {
                     println!(
                         "{}",
@@ -430,7 +431,7 @@ async fn main() -> Result<()> {
                     Ok(())
                 }
                 Err(e) => {
-                    cleanup_partial_phase2_artifacts(&paths);
+                    cleanup_partial_arbitrum_gov_artifacts(&paths);
                     Err(e)
                 }
             }
@@ -950,7 +951,26 @@ async fn run_add_did_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
     use unmasking_did::ingest_common::classify_owner_probe;
+    use unmasking_did::storage::{connect, run_migrations};
+
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_DB_SEQ: AtomicU64 = AtomicU64::new(0);
+
+    async fn test_repo() -> Repo {
+        let seq = TEST_DB_SEQ.fetch_add(1, Ordering::Relaxed);
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let db_url = format!("sqlite://data/test_main_{seq}_{ts}.db");
+        let pool = connect(&db_url).await.expect("connect");
+        run_migrations(&pool).await.expect("migrations");
+        Repo::new(pool)
+    }
 
     #[test]
     fn normalize_lowercases_valid_address() {
@@ -978,5 +998,315 @@ mod tests {
             classify_owner_probe(probe),
             "probe failure must be classified as contract (conservative under-cluster)"
         );
+    }
+
+    #[test]
+    fn cli_link_defaults_parse() {
+        let cli = Cli::try_parse_from(["unmasking-did", "link"]).expect("parse link");
+        let Command::Link {
+            min_evidence,
+            stable_threshold,
+            related_threshold,
+            conservative_funded_by,
+            funded_by_service_fan_out_cap,
+            funded_by_min_shared_keys,
+            funded_by_min_short_burst_hits,
+            funded_by_short_burst_block_delta,
+            ..
+        } = cli.command
+        else {
+            panic!("expected link command")
+        };
+        assert_eq!(min_evidence, 1);
+        assert_eq!(stable_threshold, 0.5);
+        assert_eq!(related_threshold, 0.1);
+        assert!(!conservative_funded_by);
+        assert_eq!(funded_by_service_fan_out_cap, FAN_OUT_CAP);
+        assert_eq!(funded_by_min_shared_keys, FUNDED_BY_MIN_SHARED_KEYS);
+        assert_eq!(
+            funded_by_min_short_burst_hits,
+            FUNDED_BY_MIN_SHORT_BURST_HITS
+        );
+        assert_eq!(
+            funded_by_short_burst_block_delta,
+            FUNDED_BY_BURST_BLOCK_DELTA
+        );
+    }
+
+    #[test]
+    fn cli_link_conservative_flags_override_defaults() {
+        let cli = Cli::try_parse_from([
+            "unmasking-did",
+            "link",
+            "--conservative-funded-by",
+            "--funded-by-service-fan-out-cap",
+            "77",
+            "--funded-by-min-shared-keys",
+            "3",
+            "--funded-by-min-short-burst-hits",
+            "4",
+            "--funded-by-short-burst-block-delta",
+            "6000",
+        ])
+        .expect("parse conservative link");
+        let Command::Link {
+            conservative_funded_by,
+            funded_by_service_fan_out_cap,
+            funded_by_min_shared_keys,
+            funded_by_min_short_burst_hits,
+            funded_by_short_burst_block_delta,
+            ..
+        } = cli.command
+        else {
+            panic!("expected link command")
+        };
+        assert!(conservative_funded_by);
+        assert_eq!(funded_by_service_fan_out_cap, 77);
+        assert_eq!(funded_by_min_shared_keys, 3);
+        assert_eq!(funded_by_min_short_burst_hits, 4);
+        assert_eq!(funded_by_short_burst_block_delta, 6000);
+    }
+
+    #[test]
+    fn cli_export_graph_defaults_parse() {
+        let cli = Cli::try_parse_from(["unmasking-did", "export-graph"]).expect("parse export-graph");
+        let Command::ExportGraph {
+            graph_mode,
+            max_identifier_nodes,
+            max_evidence_nodes,
+            fan_out_cap,
+            max_pairwise_links,
+            linkage_params,
+            ..
+        } = cli.command
+        else {
+            panic!("expected export-graph command")
+        };
+        assert_eq!(graph_mode, "evidence");
+        assert_eq!(max_identifier_nodes, DEFAULT_MAX_IDENTIFIER_NODES);
+        assert_eq!(max_evidence_nodes, DEFAULT_MAX_EVIDENCE_NODES);
+        assert_eq!(fan_out_cap, DEFAULT_FAN_OUT_CAP);
+        assert_eq!(max_pairwise_links, 2000);
+        assert!(linkage_params.is_none());
+    }
+
+    #[test]
+    fn cli_arbitrum_gov_defaults_parse() {
+        let cli = Cli::try_parse_from(["unmasking-did", "arbitrum-gov"])
+            .expect("parse arbitrum-gov");
+        let Command::ArbitrumGov {
+            database,
+            governance_csv,
+            control_csv,
+            min_evidence,
+            overwrite_db,
+            ..
+        } = cli.command
+        else {
+            panic!("expected arbitrum-gov command")
+        };
+        assert_eq!(database, "data/unmask_arbitrum_gov_v1.db");
+        assert_eq!(
+            governance_csv,
+            "data/seeds/arbitrum_gov_90d_governance_stratified500.csv"
+        );
+        assert_eq!(
+            control_csv,
+            "data/seeds/arbitrum_gov_90d_control_stratified500.csv"
+        );
+        assert_eq!(min_evidence, 1);
+        assert!(!overwrite_db);
+    }
+
+    #[tokio::test]
+    async fn run_add_ens_record_requires_at_least_one_field() {
+        let repo = test_repo().await;
+        let err = run_add_ens_record(&repo, "0x1111111111111111111111111111111111111111".to_string(), None, None, None, None)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("at least one of"));
+    }
+
+    #[tokio::test]
+    async fn run_add_safe_owner_and_did_document_store_records() {
+        let repo = test_repo().await;
+        run_add_safe_owner(
+            &repo,
+            "0x1111111111111111111111111111111111111111".to_string(),
+            "0x2222222222222222222222222222222222222222".to_string(),
+            false,
+            Some(2),
+            Some(123),
+        )
+        .await
+        .expect("safe owner");
+        let owners = repo
+            .safe_owners_of("0x1111111111111111111111111111111111111111")
+            .await
+            .expect("safe owners");
+        assert_eq!(owners.len(), 1);
+
+        run_add_did_document(
+            &repo,
+            "0x3333333333333333333333333333333333333333".to_string(),
+            "0x4444444444444444444444444444444444444444".to_string(),
+            "ethr".to_string(),
+            None,
+            Some(99),
+        )
+        .await
+        .expect("did doc");
+        let docs = repo
+            .did_documents_for(&["0x3333333333333333333333333333333333333333".to_string()])
+            .await
+            .expect("did docs");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].controller, "0x4444444444444444444444444444444444444444");
+    }
+
+    #[tokio::test]
+    async fn run_export_graph_rejects_unknown_mode() {
+        let repo = test_repo().await;
+        let err = run_export_graph(
+            &repo,
+            "out/test_graph.json".to_string(),
+            "unknown".to_string(),
+            10,
+            10,
+            10,
+            10,
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("unknown --graph-mode"));
+    }
+
+    #[tokio::test]
+    async fn run_score_pairs_errors_when_no_addresses_known() {
+        let repo = test_repo().await;
+        let err = run_score_pairs(&repo, vec![], 10, None, None)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("no addresses"));
+    }
+
+    #[tokio::test]
+    async fn mini_pipeline_covers_link_metrics_report_and_exports() {
+        let repo = test_repo().await;
+        let a1 = "0x1111111111111111111111111111111111111111".to_string();
+        let a2 = "0x2222222222222222222222222222222222222222".to_string();
+        let shared_owner = "0x3333333333333333333333333333333333333333".to_string();
+
+        run_add_safe_owner(&repo, a1.clone(), shared_owner.clone(), false, Some(2), Some(10))
+            .await
+            .expect("add safe owner a1");
+        run_add_safe_owner(&repo, a2.clone(), shared_owner, false, Some(2), Some(11))
+            .await
+            .expect("add safe owner a2");
+
+        let policy = FundedByMergePolicy {
+            enabled: true,
+            service_fan_out_cap: 50,
+            min_shared_keys: 2,
+            min_short_burst_hits: 2,
+            short_burst_block_delta: 5_000,
+        };
+        run_link(
+            &repo,
+            vec![a1.clone(), a2.clone()],
+            1,
+            &policy,
+            "test_profile",
+            "arbitrum",
+            "monthly",
+            100,
+            200,
+            0.9,
+            0.5,
+        )
+        .await
+        .expect("run_link");
+
+        run_metrics(&repo, 0.5).await.expect("run_metrics");
+        run_report(&repo, "json".to_string(), 0.5)
+            .await
+            .expect("run_report json");
+        run_report(&repo, "dot".to_string(), 0.5)
+            .await
+            .expect("run_report dot");
+        run_report(&repo, "markdown".to_string(), 0.5)
+            .await
+            .expect("run_report markdown");
+
+        let out_evidence = "out/test_main_evidence_graph.json".to_string();
+        run_export_graph(&repo, out_evidence, "evidence".to_string(), 100, 100, 50, 100, None)
+            .await
+            .expect("export evidence graph");
+
+        let out_pairwise = "out/test_main_pairwise_graph.json".to_string();
+        run_export_graph(&repo, out_pairwise, "pairwise".to_string(), 100, 100, 50, 100, None)
+            .await
+            .expect("export pairwise graph");
+
+        let scored_out = "out/test_main_scored_pairs.json".to_string();
+        run_score_pairs(&repo, vec![a1, a2], 100, None, Some(scored_out))
+            .await
+            .expect("score pairs");
+    }
+
+    #[tokio::test]
+    async fn run_report_rejects_unknown_format() {
+        let repo = test_repo().await;
+        let a1 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string();
+        let a2 = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string();
+        let owner = "0xcccccccccccccccccccccccccccccccccccccccc".to_string();
+        run_add_safe_owner(&repo, a1.clone(), owner.clone(), false, Some(2), Some(10))
+            .await
+            .expect("owner1");
+        run_add_safe_owner(&repo, a2.clone(), owner, false, Some(2), Some(11))
+            .await
+            .expect("owner2");
+
+        let policy = FundedByMergePolicy {
+            enabled: true,
+            service_fan_out_cap: 50,
+            min_shared_keys: 2,
+            min_short_burst_hits: 2,
+            short_burst_block_delta: 5_000,
+        };
+        run_link(
+            &repo,
+            vec![a1, a2],
+            1,
+            &policy,
+            "test_profile",
+            "arbitrum",
+            "monthly",
+            100,
+            200,
+            0.9,
+            0.5,
+        )
+        .await
+        .expect("run_link");
+
+        let err = run_report(&repo, "xml".to_string(), 0.5).await.unwrap_err();
+        assert!(err.to_string().contains("unknown --format"));
+    }
+
+    #[tokio::test]
+    async fn run_eval_rejects_invalid_ablation_mode() {
+        let repo = test_repo().await;
+        let err = run_eval(
+            &repo,
+            "tests/fixtures/does-not-matter.csv".to_string(),
+            1,
+            "not-a-mode".to_string(),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("unknown ablation mode"));
     }
 }

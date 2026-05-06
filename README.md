@@ -2,7 +2,8 @@
 
 > Measuring the gap between decentralized identifiers and decentralized entities.
 
-![status](https://img.shields.io/badge/status-early%20research%2C%20not%20production-orange)
+[![CI](https://github.com/egpivo/unmasking-did/actions/workflows/ci.yml/badge.svg)](https://github.com/egpivo/unmasking-did/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/egpivo/unmasking-did/graph/badge.svg?token=xwbzGXaFZF)](https://codecov.io/gh/egpivo/unmasking-did)
 
 `unmasking-did` is an auditable, evidence-based coordination analysis pipeline.
 It is **not** Sybil detection, deanonymization, or real-world identity attribution.
@@ -34,16 +35,16 @@ people.
 cp .env.example .env
 # set ARBITRUM_ALCHEMY_API_KEY (or fallback ALCHEMY_API_KEY)
 
-cargo run --release -- phase2-arbitrum-gov --overwrite-db
+cargo run --release -- arbitrum-gov --overwrite-db
 make serve-viewer
 # open http://localhost:8000/viewer/index.html
 ```
 
 ## Canonical outputs
 
-- `out/phase2_arbitrum_gov_summary.json`
-- `out/phase2_arbitrum_gov.graph.json`
-- `out/phase2_arbitrum_gov_report.md`
+- `out/arbitrum_gov_summary.json`
+- `out/arbitrum_gov.graph.json`
+- `out/arbitrum_gov_report.md`
 
 The static viewer reads these artifacts directly. It does not query RPC, does
 not re-run clustering, and does not render the historical baseline graph; the

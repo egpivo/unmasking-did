@@ -132,3 +132,99 @@ pub async fn run(repo: Repo, port: u16) -> Result<()> {
         .context("axum serve")?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use crate::storage::{connect, run_migrations};
+
+    static TEST_DB_SEQ: AtomicU64 = AtomicU64::new(1);
+
+    async fn test_repo() -> Repo {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let seq = TEST_DB_SEQ.fetch_add(1, Ordering::Relaxed);
+        let db_url = format!("sqlite://data/test_serve_{ts}_{seq}.db");
+        let pool = connect(&db_url).await.expect("connect");
+        run_migrations(&pool).await.expect("migrations");
+        Repo::new(pool)
+    }
+
+    async fn body_string(resp: Response) -> String {
+        let bytes = to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("body bytes");
+        String::from_utf8(bytes.to_vec()).expect("utf8")
+    }
+
+    #[tokio::test]
+    async fn health_endpoint_returns_ok() {
+        assert_eq!(health().await, "ok");
+    }
+
+    #[tokio::test]
+    async fn api_graph_rejects_unknown_mode() {
+        let repo = test_repo().await;
+        let resp = api_graph(
+            State(repo),
+            Query(GraphQuery {
+                mode: Some("unknown".to_string()),
+                max_identifier_nodes: None,
+                max_evidence_nodes: None,
+                fan_out_cap: None,
+                max_pairwise_links: None,
+                linkage_params: None,
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = body_string(resp).await;
+        assert!(body.contains("unknown mode"));
+    }
+
+    #[tokio::test]
+    async fn api_graph_pairwise_rejects_bad_linkage_params_path() {
+        let repo = test_repo().await;
+        let resp = api_graph(
+            State(repo),
+            Query(GraphQuery {
+                mode: Some("pairwise".to_string()),
+                max_identifier_nodes: Some(10),
+                max_evidence_nodes: None,
+                fan_out_cap: Some(50),
+                max_pairwise_links: Some(20),
+                linkage_params: Some("does/not/exist.json".to_string()),
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = body_string(resp).await;
+        assert!(body.contains("linkage params"));
+    }
+
+    #[tokio::test]
+    async fn api_graph_returns_not_found_when_no_clustering_runs() {
+        let repo = test_repo().await;
+        let resp = api_graph(
+            State(repo),
+            Query(GraphQuery {
+                mode: Some("evidence".to_string()),
+                max_identifier_nodes: Some(20),
+                max_evidence_nodes: Some(20),
+                fan_out_cap: Some(50),
+                max_pairwise_links: None,
+                linkage_params: None,
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let body = body_string(resp).await;
+        assert!(body.contains("no clustering runs"));
+    }
+}

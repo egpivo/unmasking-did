@@ -3,9 +3,9 @@
 
   const CANONICAL_RUN_ID = "run-1777967119432576";
   const PATHS = {
-    summary: "../out/phase2_arbitrum_gov_summary.json",
-    graph: "../out/phase2_arbitrum_gov.graph.json",
-    report: "../out/phase2_arbitrum_gov_report.md",
+    summary: "../out/arbitrum_gov_summary.json",
+    graph: "../out/arbitrum_gov.graph.json",
+    report: "../out/arbitrum_gov_report.md",
   };
 
   const el = {

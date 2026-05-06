@@ -316,3 +316,149 @@ impl AlchemyClient {
             .ok_or_else(|| anyhow!("alchemy response missing both `result` and `error`"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    async fn serve_once(status: &str, body: &str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let status_line = status.to_string();
+        let body_text = body.to_string();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buf = [0_u8; 2048];
+            let _ = stream.read(&mut buf).await;
+            let resp = format!(
+                "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body_text.len(),
+                body_text
+            );
+            stream
+                .write_all(resp.as_bytes())
+                .await
+                .expect("write resp");
+        });
+        format!("http://{}", addr)
+    }
+
+    #[test]
+    fn new_uses_default_base_url_and_key_suffix() {
+        let c = AlchemyClient::new("k1");
+        assert_eq!(c.url, format!("{}/{}", DEFAULT_ALCHEMY_BASE_URL, "k1"));
+        assert_eq!(
+            c.transfer_categories,
+            DEFAULT_TRANSFER_CATEGORIES
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn with_base_url_trims_trailing_slash() {
+        let c = AlchemyClient::with_base_url("https://arb-mainnet.g.alchemy.com/v2/", "k2");
+        assert_eq!(c.url, "https://arb-mainnet.g.alchemy.com/v2/k2");
+    }
+
+    #[test]
+    fn with_transfer_categories_replaces_defaults() {
+        let c = AlchemyClient::new("k1")
+            .with_transfer_categories(vec!["external".to_string(), "erc20".to_string()]);
+        assert_eq!(c.transfer_categories, vec!["external", "erc20"]);
+    }
+
+    #[test]
+    fn hex_block_formats_lower_hex_with_prefix() {
+        assert_eq!(hex_block_u64(0), "0x0");
+        assert_eq!(hex_block_u64(255), "0xff");
+        assert_eq!(hex_block_u64(4_000_000), "0x3d0900");
+    }
+
+    #[tokio::test]
+    async fn bounded_fetch_rejects_invalid_direction_before_network() {
+        let c = AlchemyClient::new("k1");
+        let err = c
+            .get_asset_transfers_bounded("0xabc", None, None, Some("sideways"), 1, 1, None)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("invalid direction"));
+    }
+
+    #[tokio::test]
+    async fn call_reports_http_status_error() {
+        let base = serve_once("403 Forbidden", "{}").await;
+        let c = AlchemyClient::with_base_url(base, "k1");
+        let err = c
+            .call("alchemy_getAssetTransfers", &serde_json::json!([{}]))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("HTTP 403"));
+    }
+
+    #[tokio::test]
+    async fn call_reports_json_rpc_error() {
+        let base = serve_once(
+            "200 OK",
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"boom"}}"#,
+        )
+        .await;
+        let c = AlchemyClient::with_base_url(base, "k1");
+        let err = c
+            .call("alchemy_getAssetTransfers", &serde_json::json!([{}]))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("JSON-RPC error"));
+    }
+
+    #[tokio::test]
+    async fn call_reports_missing_result_and_error() {
+        let base = serve_once("200 OK", r#"{"jsonrpc":"2.0","id":1}"#).await;
+        let c = AlchemyClient::with_base_url(base, "k1");
+        let err = c
+            .call("alchemy_getAssetTransfers", &serde_json::json!([{}]))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("missing both `result` and `error`"));
+    }
+
+    #[tokio::test]
+    async fn is_contract_false_for_empty_code() {
+        let base = serve_once("200 OK", r#"{"jsonrpc":"2.0","id":1,"result":"0x"}"#).await;
+        let c = AlchemyClient::with_base_url(base, "k1");
+        let is_contract = c
+            .is_contract("0x1111111111111111111111111111111111111111")
+            .await
+            .expect("is_contract");
+        assert!(!is_contract);
+    }
+
+    #[tokio::test]
+    async fn bounded_fetch_parses_single_page_transfers() {
+        let base = serve_once(
+            "200 OK",
+            r#"{"jsonrpc":"2.0","id":1,"result":{"transfers":[{"from":"0xAa","to":"0xBb","value":"1","blockNum":"0x1","hash":"0x123","asset":"ETH"}]}}"#,
+        )
+        .await;
+        let c = AlchemyClient::with_base_url(base, "k1")
+            .with_transfer_categories(vec!["external".to_string()]);
+        let out = c
+            .get_asset_transfers_bounded(
+                "0x1111111111111111111111111111111111111111",
+                Some(1),
+                Some(2),
+                Some("toAddress"),
+                1,
+                10,
+                None,
+            )
+            .await
+            .expect("bounded fetch");
+        assert_eq!(out.alchemy_calls, 1);
+        assert_eq!(out.pages_fetched, 1);
+        assert_eq!(out.transfers.len(), 1);
+    }
+}

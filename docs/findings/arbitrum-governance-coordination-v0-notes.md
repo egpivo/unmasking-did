@@ -4,9 +4,9 @@ Companion notes for `arbitrum-governance-coordination-v0.md`.
 
 ## Artifact Provenance
 
-- Conservative summary: `out/phase2_relink_conservative_summary.json`
-- Markdown report (latest run): `out/phase2_arbitrum_gov_report.md`
-- Graph JSON (latest run): `out/phase2_arbitrum_gov.graph.json`
+- Conservative summary: `out/arbitrum_gov_relink_conservative_summary.json`
+- Markdown report (latest run): `out/arbitrum_gov_report.md`
+- Graph JSON (latest run): `out/arbitrum_gov.graph.json`
 - SQLite store: `data/unmask_arbitrum_gov_v1.db`
 
 Latest conservative run metadata:

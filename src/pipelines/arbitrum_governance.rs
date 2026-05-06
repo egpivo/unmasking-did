@@ -1,8 +1,8 @@
-//! Phase 2: Arbitrum governance + control coordination study (strict guardrails).
+//! Arbitrum governance + control cohort pipeline (strict guardrails).
 //!
 //! Ingests exactly the stratified seed CSVs (no expansion), bounded one-hop
 //! transfer caching via Alchemy, then runs the existing evidence extractors
-//! and deterministic merge rules.
+//! and deterministic merge rules. Invoked from the CLI as `arbitrum-gov`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -39,16 +39,16 @@ pub const DEFAULT_ARBITRUM_SAFE_TX_SERVICE_URL: &str =
 /// L2-safe categories (`internal` is rejected outside ETH/MATIC on Alchemy).
 const ARBITRUM_TRANSFER_CATEGORIES: &[&str] = &["external", "erc20"];
 
-/// Merge-time `(kind, key)` fan-out cap for service-like suppression (Phase 2 spec).
-pub const PHASE2_LINK_FANOUT_CAP: usize = 1000;
+/// Merge-time `(kind, key)` fan-out cap for service-like suppression (Arbitrum gov cohort spec).
+pub const ARBITRUM_GOV_LINK_FANOUT_CAP: usize = 1000;
 
 const DEFAULT_GOV_CSV: &str = "data/seeds/arbitrum_gov_90d_governance_stratified500.csv";
 const DEFAULT_CTL_CSV: &str = "data/seeds/arbitrum_gov_90d_control_stratified500.csv";
 const DEFAULT_PHASE1B_JSON: &str = "out/phase1b_arbitrum_gov_seed_quality.json";
 const DEFAULT_DB: &str = "data/unmask_arbitrum_gov_v1.db";
-const DEFAULT_REPORT: &str = "out/phase2_arbitrum_gov_report.md";
-const DEFAULT_GRAPH: &str = "out/phase2_arbitrum_gov.graph.json";
-const DEFAULT_SUMMARY_JSON: &str = "out/phase2_arbitrum_gov_summary.json";
+const DEFAULT_REPORT: &str = "out/arbitrum_gov_report.md";
+const DEFAULT_GRAPH: &str = "out/arbitrum_gov.graph.json";
+const DEFAULT_SUMMARY_JSON: &str = "out/arbitrum_gov_summary.json";
 
 /// Total `alchemy_getAssetTransfers` rows cached per seed (incoming + outgoing).
 const MAX_TRANSFER_ROWS_PER_SEED: usize = 250;
@@ -68,7 +68,7 @@ const SKIP_NO_PREV: &str =
     "No prior same-profile run available; lineage not computed for this run.";
 
 #[derive(Debug, Clone)]
-pub struct Phase2Paths {
+pub struct ArbitrumGovPaths {
     pub governance_csv: PathBuf,
     pub control_csv: PathBuf,
     pub phase1b_json: PathBuf,
@@ -79,9 +79,9 @@ pub struct Phase2Paths {
     pub funder_denylist_txt: Option<PathBuf>,
 }
 
-/// Remove Phase 2 artifacts after a failed run so a partial SQLite file or
+/// Remove Arbitrum governance cohort artifacts after a failed run so a partial SQLite file or
 /// stale outputs are not mistaken for a completed pipeline.
-pub fn cleanup_partial_phase2_artifacts(paths: &Phase2Paths) {
+pub fn cleanup_partial_arbitrum_gov_artifacts(paths: &ArbitrumGovPaths) {
     if let Some(p) = paths.database_url.strip_prefix("sqlite://") {
         let _ = std::fs::remove_file(p);
     }
@@ -90,7 +90,7 @@ pub fn cleanup_partial_phase2_artifacts(paths: &Phase2Paths) {
     let _ = std::fs::remove_file(&paths.summary_json);
 }
 
-impl Default for Phase2Paths {
+impl Default for ArbitrumGovPaths {
     fn default() -> Self {
         Self {
             governance_csv: PathBuf::from(DEFAULT_GOV_CSV),
@@ -106,7 +106,7 @@ impl Default for Phase2Paths {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct Phase2Summary {
+pub struct ArbitrumGovSummary {
     pub database_url: String,
     pub alchemy_base_url_used: String,
     /// Which env var supplied the key (`ARBITRUM_ALCHEMY_API_KEY` or `ALCHEMY_API_KEY`); key is never stored.
@@ -368,15 +368,15 @@ fn cluster_evidence_dominated_by_skipped(
     })
 }
 
-/// Run Phase 2 end-to-end. Arbitrum Alchemy URL + API key are resolved only via
+/// Run the Arbitrum governance + control cohort pipeline end-to-end. Arbitrum Alchemy URL + API key are resolved only via
 /// [`crate::config::arbitrum_alchemy_api_key_from_env`] / [`crate::config::arbitrum_alchemy_base_url_from_env`].
 /// `cfg` supplies ENS resolver URL and other defaults; isolated DB uses `paths.database_url`.
-pub async fn run_phase2_arbitrum_gov(
+pub async fn run_arbitrum_gov_pipeline(
     cfg: &Config,
-    paths: &Phase2Paths,
+    paths: &ArbitrumGovPaths,
     min_evidence: usize,
     overwrite_db: bool,
-) -> Result<Phase2Summary> {
+) -> Result<ArbitrumGovSummary> {
     let (alchemy_api_key, key_source_static) = arbitrum_alchemy_api_key_from_env()?;
     let arb_base = arbitrum_alchemy_base_url_from_env();
     let key_source = key_source_static.to_string();
@@ -431,7 +431,7 @@ pub async fn run_phase2_arbitrum_gov(
     let extra_deny: Option<HashSet<String>> = match &paths.funder_denylist_txt {
         Some(p) => Some(load_optional_funder_deny(p)?),
         None => {
-            let default_deny = PathBuf::from("data/phase2_arbitrum_funder_denylist.txt");
+            let default_deny = PathBuf::from("data/arbitrum_gov_funder_denylist.txt");
             if default_deny.is_file() {
                 Some(load_optional_funder_deny(&default_deny)?)
             } else {
@@ -467,7 +467,7 @@ pub async fn run_phase2_arbitrum_gov(
     let win_hi = WINDOW_END_BLOCK as i64;
 
     for s in &seeds {
-        info!(address = %s.address, role = s.role, "phase2 ingest");
+        info!(address = %s.address, role = s.role, "arbitrum_gov ingest");
 
         let inc = client
             .get_asset_transfers_bounded(
@@ -586,7 +586,7 @@ pub async fn run_phase2_arbitrum_gov(
         &repo,
         &addresses,
         min_evidence,
-        PHASE2_LINK_FANOUT_CAP,
+        ARBITRUM_GOV_LINK_FANOUT_CAP,
         extra_deny.as_ref(),
         &FundedByMergePolicy::legacy_disabled(),
     )
@@ -631,7 +631,7 @@ pub async fn run_phase2_arbitrum_gov(
             (PAGINATION_BIAS_WARN_FRAC * 100.0) as u32
         ));
     }
-    let graph = build_graph(&repo, Some(&run_id), 120, 240, PHASE2_LINK_FANOUT_CAP).await?;
+    let graph = build_graph(&repo, Some(&run_id), 120, 240, ARBITRUM_GOV_LINK_FANOUT_CAP).await?;
     if let Some(parent) = paths.graph_json.parent() {
         std::fs::create_dir_all(parent).ok();
     }
@@ -656,7 +656,7 @@ pub async fn run_phase2_arbitrum_gov(
         .to_string(),
         params_json: serde_json::json!({
             "min_evidence": min_evidence,
-            "link_fanout_cap": PHASE2_LINK_FANOUT_CAP,
+            "link_fanout_cap": ARBITRUM_GOV_LINK_FANOUT_CAP,
             "funded_by_policy": FundedByMergePolicy::legacy_disabled()
         })
         .to_string(),
@@ -692,7 +692,7 @@ pub async fn run_phase2_arbitrum_gov(
         repo.insert_cluster_lineage_rows(&lineage_rows).await?;
     }
 
-    let report_md = render_phase2_markdown(
+    let report_md = render_arbitrum_gov_markdown(
         paths,
         &arb_base,
         &key_source,
@@ -700,7 +700,7 @@ pub async fn run_phase2_arbitrum_gov(
         &input_snapshot_hash,
         &run_id,
         min_evidence,
-        PHASE2_LINK_FANOUT_CAP,
+        ARBITRUM_GOV_LINK_FANOUT_CAP,
         &output,
         &gov_set,
         &ctl_set,
@@ -722,7 +722,7 @@ pub async fn run_phase2_arbitrum_gov(
     }
     std::fs::write(&paths.report_md, report_md)?;
 
-    let summary = Phase2Summary {
+    let summary = ArbitrumGovSummary {
         database_url: paths.database_url.clone(),
         alchemy_base_url_used: arb_base.clone(),
         arbitrum_alchemy_key_source: key_source.clone(),
@@ -744,7 +744,7 @@ pub async fn run_phase2_arbitrum_gov(
         pagination_bias_risk,
         db_size_bytes,
         db_size_stopped: false,
-        link_fanout_cap: PHASE2_LINK_FANOUT_CAP,
+        link_fanout_cap: ARBITRUM_GOV_LINK_FANOUT_CAP,
         min_evidence,
         run_id: run_id.clone(),
         n_clusters,
@@ -764,8 +764,8 @@ pub async fn run_phase2_arbitrum_gov(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_phase2_markdown(
-    paths: &Phase2Paths,
+fn render_arbitrum_gov_markdown(
+    paths: &ArbitrumGovPaths,
     alchemy_base: &str,
     alchemy_key_source: &str,
     safe_tx_base: &str,
@@ -790,7 +790,7 @@ fn render_phase2_markdown(
     anomalies: &[String],
 ) -> String {
     let mut s = String::new();
-    s.push_str("# Phase 2 — Arbitrum governance coordination (research)\n\n");
+    s.push_str("# Arbitrum governance / control cohort (research)\n\n");
     s.push_str("This report describes **on-chain coordination signals** among a fixed seed set. ");
     s.push_str("It does **not** assert malicious behavior, duplicate-identity farming, or same real-world human control.\n\n");
     s.push_str("**Disclaimers**\n\n");
@@ -822,9 +822,9 @@ fn render_phase2_markdown(
         "- **Block window**: `{}` → `{}`\n",
         WINDOW_START_BLOCK, WINDOW_END_BLOCK
     ));
-    s.push_str("- **Transfer categories (Phase 2)**: `external`, `erc20` only — ignores generic `ALCHEMY_BASE_URL` / `ALCHEMY_TRANSFER_CATEGORIES` from `.env` meant for other chains.\n");
+    s.push_str("- **Transfer categories (this pipeline)**: `external`, `erc20` only — ignores generic `ALCHEMY_BASE_URL` / `ALCHEMY_TRANSFER_CATEGORIES` from `.env` meant for other chains.\n");
     s.push_str(&format!(
-        "- **Safe Transaction Service (Phase 2)**: `{}` (override with `ARBITRUM_SAFE_TX_SERVICE_URL`).\n\n",
+        "- **Safe Transaction Service (this pipeline)**: `{}` (override with `ARBITRUM_SAFE_TX_SERVICE_URL`).\n\n",
         safe_tx_base.trim_end_matches('/')
     ));
 
@@ -972,6 +972,7 @@ mod tests {
     use crate::linking::ClusterReport;
     use crate::storage::repo::DatasetRunSummary;
     use std::collections::{HashMap, HashSet};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn prev_summary(window_start: i64, window_end: i64) -> DatasetRunSummary {
         DatasetRunSummary {
@@ -1052,15 +1053,15 @@ mod tests {
             governance_count: 2,
             control_count: 0,
         }];
-        let md = render_phase2_markdown(
-            &Phase2Paths::default(),
+        let md = render_arbitrum_gov_markdown(
+            &ArbitrumGovPaths::default(),
             "https://arb-mainnet.g.alchemy.com/v2",
             "ARBITRUM_ALCHEMY_API_KEY",
             "https://safe-transaction-arbitrum.safe.global",
             "hash",
             "run",
             1,
-            PHASE2_LINK_FANOUT_CAP,
+            ARBITRUM_GOV_LINK_FANOUT_CAP,
             &output,
             &HashSet::new(),
             &HashSet::new(),
@@ -1114,5 +1115,335 @@ mod tests {
         assert_eq!(lineage.counts.stable, 1);
         assert_eq!(lineage.counts.total_rows, 1);
         assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn coordination_tier_covers_singleton_and_mixed_cases() {
+        let mut gov = HashSet::new();
+        gov.insert("0xg".to_string());
+        let mut ctl = HashSet::new();
+        ctl.insert("0xc".to_string());
+
+        let singleton_g = ClusterReport {
+            cluster_id: "0xg".to_string(),
+            addresses: vec!["0xg".to_string()],
+            shared_evidence_keys: vec![],
+        };
+        assert_eq!(
+            coordination_tier(&singleton_g, &gov, &ctl),
+            "singleton_governance_seed"
+        );
+
+        let mixed = ClusterReport {
+            cluster_id: "0xm".to_string(),
+            addresses: vec!["0xg".to_string(), "0xc".to_string()],
+            shared_evidence_keys: vec!["k".to_string()],
+        };
+        assert_eq!(
+            coordination_tier(&mixed, &gov, &ctl),
+            "multi_identifier_coordination_mixed_governance_and_control"
+        );
+    }
+
+    #[test]
+    fn coordination_tier_singleton_control_generic_and_multi_pure_cohorts() {
+        let mut gov = HashSet::new();
+        gov.insert("0xg".to_string());
+        let mut ctl = HashSet::new();
+        ctl.insert("0xc".to_string());
+
+        let singleton_c = ClusterReport {
+            cluster_id: "a".to_string(),
+            addresses: vec!["0xc".to_string()],
+            shared_evidence_keys: vec![],
+        };
+        assert_eq!(
+            coordination_tier(&singleton_c, &gov, &ctl),
+            "singleton_negative_control_reference"
+        );
+
+        let singleton_other = ClusterReport {
+            cluster_id: "b".to_string(),
+            addresses: vec!["0xunknown0000000000000000000000000000000001".to_string()],
+            shared_evidence_keys: vec![],
+        };
+        assert_eq!(
+            coordination_tier(&singleton_other, &gov, &ctl),
+            "singleton"
+        );
+
+        let mut gov2 = HashSet::new();
+        gov2.extend([
+            "0xa100000000000000000000000000000000000001".to_string(),
+            "0xa200000000000000000000000000000000000002".to_string(),
+        ]);
+        let mut ctl2 = HashSet::new();
+        ctl2.extend([
+            "0xc100000000000000000000000000000000000001".to_string(),
+            "0xc200000000000000000000000000000000000002".to_string(),
+        ]);
+
+        let ctl_only = ClusterReport {
+            cluster_id: "x".to_string(),
+            addresses: vec![
+                "0xc100000000000000000000000000000000000001".to_string(),
+                "0xc200000000000000000000000000000000000002".to_string(),
+            ],
+            shared_evidence_keys: vec!["k".to_string()],
+        };
+        assert_eq!(
+            coordination_tier(&ctl_only, &gov2, &ctl2),
+            "multi_identifier_coordination_control_only"
+        );
+
+        let gov_only = ClusterReport {
+            cluster_id: "y".to_string(),
+            addresses: vec![
+                "0xa100000000000000000000000000000000000001".to_string(),
+                "0xa200000000000000000000000000000000000002".to_string(),
+            ],
+            shared_evidence_keys: vec!["k".to_string()],
+        };
+        assert_eq!(
+            coordination_tier(&gov_only, &gov2, &ctl2),
+            "multi_identifier_coordination_governance_only"
+        );
+
+        let candidate = ClusterReport {
+            cluster_id: "z".to_string(),
+            addresses: vec![
+                "0xe100000000000000000000000000000000000001".to_string(),
+                "0xe200000000000000000000000000000000000002".to_string(),
+            ],
+            shared_evidence_keys: vec!["k".to_string()],
+        };
+        assert_eq!(
+            coordination_tier(&candidate, &gov2, &ctl2),
+            "multi_identifier_coordination_candidate"
+        );
+    }
+
+    #[test]
+    fn lineage_skips_when_policy_profile_mismatched() {
+        let mut prev = prev_summary(100, 200);
+        prev.policy_profile_id = "other_profile".to_string();
+        let mut cur = HashMap::new();
+        cur.insert("c1".to_string(), vec!["0x1".to_string()]);
+        let mut prev_map = HashMap::new();
+        prev_map.insert("p1".to_string(), vec!["0x1".to_string()]);
+        let (lineage, rows) = build_lineage_summary(
+            "run",
+            "arbitrum",
+            POLICY_PROFILE_ID,
+            100,
+            200,
+            Some(&prev),
+            Some(&cur),
+            Some(&prev_map),
+        )
+        .expect("lineage helper should not fail");
+        assert!(!lineage.enabled);
+        assert_eq!(
+            lineage.skip_reason.as_deref(),
+            Some(SKIP_PREV_WINDOW_NOT_SET)
+        );
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn skipped_key_set_and_dominated_by_skipped_detection() {
+        let skipped = vec![SkippedKey {
+            kind: "funded_by".to_string(),
+            key: "0xabc".to_string(),
+            fan_out: 10,
+        }];
+        let set = skipped_key_set(&skipped);
+        let c = ClusterReport {
+            cluster_id: "0x1".to_string(),
+            addresses: vec!["0xa".to_string(), "0xb".to_string()],
+            shared_evidence_keys: vec!["0xAbC".to_string()],
+        };
+        assert!(cluster_evidence_dominated_by_skipped(&c, &set));
+    }
+
+    #[test]
+    fn parse_seed_csv_reads_rows_and_normalizes_addresses() {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("arb_gov_seed_{ts}.csv"));
+        std::fs::write(
+            &path,
+            "address,first_seen_block,seed_type\n0xAbCdef0123456789AbCdef0123456789aBcDef01,123,governance\n",
+        )
+        .expect("write csv");
+        let rows = parse_seed_csv(&path, "governance").expect("parse");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].role, "governance");
+        assert_eq!(rows[0].first_seen_block, 123);
+        assert_eq!(rows[0].address, "0xabcdef0123456789abcdef0123456789abcdef01");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn parse_seed_csv_rejects_missing_first_seen_block() {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("arb_gov_seed_bad_{ts}.csv"));
+        std::fs::write(
+            &path,
+            "address,seed_type\n0xabcdef0123456789abcdef0123456789abcdef01,governance\n",
+        )
+        .expect("write csv");
+        let err = parse_seed_csv(&path, "governance").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("missing first_seen_block")
+                || msg.contains("missing address column")
+                || msg.contains("bad block"),
+            "unexpected parse error: {msg}"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn read_snapshot_hash_success_and_missing_key() {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let ok = std::env::temp_dir().join(format!("arb_gov_snapshot_ok_{ts}.json"));
+        std::fs::write(&ok, r#"{"input_snapshot_hash":"abc123"}"#).expect("write json");
+        let h = read_snapshot_hash(&ok).expect("snapshot hash");
+        assert_eq!(h, "abc123");
+
+        let bad = std::env::temp_dir().join(format!("arb_gov_snapshot_bad_{ts}.json"));
+        std::fs::write(&bad, r#"{"other":"x"}"#).expect("write json");
+        let err = read_snapshot_hash(&bad).unwrap_err();
+        assert!(err.to_string().contains("missing input_snapshot_hash"));
+
+        let _ = std::fs::remove_file(&ok);
+        let _ = std::fs::remove_file(&bad);
+    }
+
+    #[test]
+    fn read_snapshot_hash_rejects_invalid_json() {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let p = std::env::temp_dir().join(format!("arb_gov_snap_badjson_{ts}.txt"));
+        std::fs::write(&p, "not json {{{").expect("write");
+        let err = read_snapshot_hash(&p).unwrap_err();
+        assert!(err.to_string().contains("parse phase1b json"));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn parse_seed_csv_allows_header_only() {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("arb_gov_empty_csv_{ts}.csv"));
+        std::fs::write(
+            &path,
+            "address,first_seen_block,seed_type\n",
+        )
+        .expect("write csv");
+        let rows = parse_seed_csv(&path, "governance").expect("parse");
+        assert!(rows.is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_optional_funder_deny_skips_comments_and_normalizes() {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let p = std::env::temp_dir().join(format!("arb_gov_deny_{ts}.txt"));
+        std::fs::write(
+            &p,
+            "# comment\n\n0xAbCdef0123456789AbCdef0123456789aBcDef01\n",
+        )
+        .expect("write txt");
+        let deny = load_optional_funder_deny(&p).expect("deny");
+        assert_eq!(deny.len(), 1);
+        assert!(deny.contains("0xabcdef0123456789abcdef0123456789abcdef01"));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn load_optional_funder_deny_rejects_invalid_address() {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let p = std::env::temp_dir().join(format!("arb_gov_deny_bad_{ts}.txt"));
+        std::fs::write(&p, "not-an-address\n").expect("write txt");
+        let err = load_optional_funder_deny(&p).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("0x-prefixed") || msg.contains("non-hex"),
+            "unexpected denylist error: {msg}"
+        );
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn arbitrum_gov_paths_default_uses_expected_files() {
+        let p = ArbitrumGovPaths::default();
+        assert!(p.database_url.starts_with("sqlite://"));
+        assert!(p.governance_csv.ends_with(DEFAULT_GOV_CSV));
+        assert!(p.control_csv.ends_with(DEFAULT_CTL_CSV));
+        assert!(p.report_md.ends_with(DEFAULT_REPORT));
+        assert!(p.graph_json.ends_with(DEFAULT_GRAPH));
+        assert!(p.summary_json.ends_with(DEFAULT_SUMMARY_JSON));
+        assert!(p.funder_denylist_txt.is_none());
+    }
+
+    #[test]
+    fn cluster_evidence_dominated_by_skipped_false_for_empty_or_non_skipped() {
+        let empty = ClusterReport {
+            cluster_id: "0x1".to_string(),
+            addresses: vec!["0xa".to_string()],
+            shared_evidence_keys: vec![],
+        };
+        assert!(!cluster_evidence_dominated_by_skipped(
+            &empty,
+            &HashSet::new()
+        ));
+
+        let c = ClusterReport {
+            cluster_id: "0x2".to_string(),
+            addresses: vec!["0xa".to_string(), "0xb".to_string()],
+            shared_evidence_keys: vec!["0xkey".to_string()],
+        };
+        let skipped = HashSet::from([("funded_by".to_string(), "0xother".to_string())]);
+        assert!(!cluster_evidence_dominated_by_skipped(&c, &skipped));
+    }
+
+    #[test]
+    fn build_lineage_summary_requires_maps_when_enabled() {
+        let prev = prev_summary(1, 2);
+        let err = build_lineage_summary(
+            "run",
+            "arbitrum",
+            POLICY_PROFILE_ID,
+            100,
+            200,
+            Some(&prev),
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("current cluster map is required when lineage is enabled")
+        );
     }
 }

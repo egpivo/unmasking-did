@@ -3,9 +3,9 @@
 
   const CANONICAL_RUN_ID = "run-1777967119432576";
   const ARTIFACT_FILES = {
-    summary: "phase2_arbitrum_gov_summary.json",
-    graph: "phase2_arbitrum_gov.graph.json",
-    report: "phase2_arbitrum_gov_report.md",
+    summary: "arbitrum_gov_summary.json",
+    graph: "arbitrum_gov.graph.json",
+    report: "arbitrum_gov_report.md",
   };
 
   const el = {

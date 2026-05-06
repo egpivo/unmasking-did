@@ -1,0 +1,13 @@
+{
+  "t_high": 6.0,
+  "t_low": 2.0,
+  "w_did_controller": 12.0,
+  "w_safe_owner_jaccard": 0.0,
+  "w_safe_owner_min_overlap": 8.0,
+  "w_shared_safe_owner_count": 0.0,
+  "w_shared_ens_handle": 5.0,
+  "w_shared_funder": 3.0,
+  "funder_fanout_ln_offset": 2.0,
+  "link_probability_mid": 4.0,
+  "link_probability_scale": 2.0
+}

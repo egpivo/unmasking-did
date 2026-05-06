@@ -2,13 +2,13 @@ use serde::Deserialize;
 use unmasking_did::alchemy::Transfer;
 use unmasking_did::graph_export::build_graph;
 use unmasking_did::linking::link_and_persist;
-use unmasking_did::phase2_arbitrum_gov::{
-    ClusterSummary, LineageCounts, LineageSummary, PaginationCapHits, Phase2Summary, SeedCounts,
+use unmasking_did::pipelines::arbitrum_governance::{
+    ArbitrumGovSummary, ClusterSummary, LineageCounts, LineageSummary, PaginationCapHits, SeedCounts,
 };
 use unmasking_did::storage::{connect, run_migrations, Repo};
 
 #[derive(Debug, Deserialize)]
-struct LegacyPhase2Summary {
+struct LegacyArbitrumGovSummary {
     run_id: String,
     n_clusters: usize,
     n_addresses_clustered: usize,
@@ -27,7 +27,7 @@ fn t(from: &str, to: &str, block: i64, tx: &str) -> Transfer {
 
 #[test]
 fn summary_json_contains_lineage_and_monitoring_metadata() {
-    let summary = Phase2Summary {
+    let summary = ArbitrumGovSummary {
         database_url: "sqlite://data/unmask_arbitrum_gov_v1.db".to_string(),
         alchemy_base_url_used: "https://arb-mainnet.g.alchemy.com/v2".to_string(),
         arbitrum_alchemy_key_source: "ARBITRUM_ALCHEMY_API_KEY".to_string(),
@@ -102,7 +102,7 @@ fn summary_json_contains_lineage_and_monitoring_metadata() {
 
 #[test]
 fn summary_json_remains_backward_compatible_for_legacy_parsers() {
-    let summary = Phase2Summary {
+    let summary = ArbitrumGovSummary {
         database_url: "sqlite://data/unmask_arbitrum_gov_v1.db".to_string(),
         alchemy_base_url_used: "https://arb-mainnet.g.alchemy.com/v2".to_string(),
         arbitrum_alchemy_key_source: "ARBITRUM_ALCHEMY_API_KEY".to_string(),
@@ -148,7 +148,7 @@ fn summary_json_remains_backward_compatible_for_legacy_parsers() {
         anomalies: vec![],
     };
     let json = serde_json::to_string(&summary).expect("serialize summary");
-    let legacy: LegacyPhase2Summary =
+    let legacy: LegacyArbitrumGovSummary =
         serde_json::from_str(&json).expect("legacy parser should still work");
     assert_eq!(legacy.run_id, "run-legacy");
     assert_eq!(legacy.n_clusters, 2);

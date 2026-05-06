@@ -12,9 +12,9 @@ Scope: coordination-monitoring output only (not Sybil detection)
 - Enrichment bound: one-hop only, bounded pagination/caps
 - Raw artifacts:
   - `data/unmask_arbitrum_gov_v1.db`
-  - `out/phase2_relink_conservative_summary.json`
-  - `out/phase2_arbitrum_gov_report.md`
-  - `out/phase2_arbitrum_gov.graph.json`
+  - `out/arbitrum_gov_relink_conservative_summary.json`
+  - `out/arbitrum_gov_report.md`
+  - `out/arbitrum_gov.graph.json`
 
 ## Why Raw funded_by Over-linked
 
@@ -46,7 +46,7 @@ This is safer because it reduces hub-induced false joins while retaining a bound
 
 ## Validated Conservative Result
 
-From `out/phase2_relink_conservative_summary.json`:
+From `out/arbitrum_gov_relink_conservative_summary.json`:
 
 - `cluster_count = 976`
 - `top_cluster_size = 5`

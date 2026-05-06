@@ -51,3 +51,63 @@ fn parse_one(v: &Value) -> Result<Transfer> {
         asset,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_transfers_accepts_string_and_numeric_value() {
+        let v = json!([
+            {
+                "from": "0xAa",
+                "to": "0xBb",
+                "value": "123",
+                "blockNum": "0x10",
+                "hash": "0xABCD",
+                "asset": "ARB"
+            },
+            {
+                "from": "0xCc",
+                "to": "0xDd",
+                "value": 7,
+                "blockNum": "0x11",
+                "hash": "0xEF01",
+                "asset": "ETH"
+            }
+        ]);
+        let out = parse_transfers(&v).expect("parse");
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].from_addr, "0xaa");
+        assert_eq!(out[0].to_addr, "0xbb");
+        assert_eq!(out[0].value.as_deref(), Some("123"));
+        assert_eq!(out[0].block_num, Some(16));
+        assert_eq!(out[0].tx_hash.as_deref(), Some("0xabcd"));
+        assert_eq!(out[1].value.as_deref(), Some("7"));
+    }
+
+    #[test]
+    fn parse_transfers_rejects_non_array() {
+        let err = parse_transfers(&json!({"not":"array"})).unwrap_err();
+        assert!(err.to_string().contains("expected `transfers` to be an array"));
+    }
+
+    #[test]
+    fn parse_one_requires_from_and_to() {
+        let err = parse_transfers(&json!([{"to":"0x1"}])).unwrap_err();
+        assert!(err.to_string().contains("transfer missing `from`"));
+
+        let err = parse_transfers(&json!([{"from":"0x1"}])).unwrap_err();
+        assert!(err.to_string().contains("transfer missing `to`"));
+    }
+
+    #[test]
+    fn parse_one_handles_invalid_hex_block_as_none() {
+        let out = parse_transfers(&json!([{
+            "from":"0xAa","to":"0xBb","blockNum":"not_hex"
+        }]))
+        .expect("parse");
+        assert_eq!(out[0].block_num, None);
+    }
+}
