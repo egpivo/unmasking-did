@@ -1,8 +1,8 @@
 {
   "graph_mode": "pairwise",
   "run": {
-    "run_id": "run-1778057265646578",
-    "started_at": "2026-05-06 08:47:45",
+    "run_id": "run-1778063231885421",
+    "started_at": "2026-05-06 10:27:11",
     "params": {
       "address_count": 2,
       "fan_out_cap": 50,

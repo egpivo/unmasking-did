@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use std::str::FromStr;
@@ -139,7 +139,7 @@ pub struct BenchmarkRun {
     pub code_commit: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BenchmarkGroundTruthEntityRow {
     pub benchmark_run_id: String,
     pub entity_id: String,
@@ -148,7 +148,7 @@ pub struct BenchmarkGroundTruthEntityRow {
     pub role_tag: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BenchmarkSyntheticEvidenceRow {
     pub benchmark_run_id: String,
     pub evidence_id: String,
@@ -853,6 +853,87 @@ impl Repo {
         Ok(())
     }
 
+    pub async fn insert_benchmark_snapshot(
+        &self,
+        run: &BenchmarkRun,
+        truth_rows: &[BenchmarkGroundTruthEntityRow],
+        evidence_rows: &[BenchmarkSyntheticEvidenceRow],
+    ) -> Result<()> {
+        if truth_rows
+            .iter()
+            .any(|r| r.benchmark_run_id != run.benchmark_run_id)
+        {
+            bail!("insert_benchmark_snapshot: truth row run_id mismatch");
+        }
+        if evidence_rows
+            .iter()
+            .any(|r| r.benchmark_run_id != run.benchmark_run_id)
+        {
+            bail!("insert_benchmark_snapshot: evidence row run_id mismatch");
+        }
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO benchmark_runs
+                (benchmark_run_id, scenario_suite_id, scenario_id, seed, generator_version,
+                 policy_profile_id, policy_variant, input_snapshot_hash, code_commit)
+             VALUES
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        )
+        .bind(&run.benchmark_run_id)
+        .bind(&run.scenario_suite_id)
+        .bind(&run.scenario_id)
+        .bind(run.seed)
+        .bind(&run.generator_version)
+        .bind(&run.policy_profile_id)
+        .bind(&run.policy_variant)
+        .bind(&run.input_snapshot_hash)
+        .bind(&run.code_commit)
+        .execute(&mut *tx)
+        .await
+        .context("insert_benchmark_snapshot: insert benchmark_runs failed")?;
+
+        for row in truth_rows {
+            sqlx::query(
+                "INSERT INTO benchmark_ground_truth_entities
+                    (benchmark_run_id, entity_id, wallet_id, cohort, role_tag)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .bind(&row.benchmark_run_id)
+            .bind(&row.entity_id)
+            .bind(row.wallet_id.to_lowercase())
+            .bind(&row.cohort)
+            .bind(row.role_tag.as_deref())
+            .execute(&mut *tx)
+            .await
+            .context("insert_benchmark_snapshot: insert truth row failed")?;
+        }
+
+        for row in evidence_rows {
+            sqlx::query(
+                "INSERT INTO benchmark_synthetic_evidence
+                    (benchmark_run_id, evidence_id, subject_wallet_id, counterparty_id,
+                     evidence_kind, strength_hint, event_time_bucket, sequence_index, metadata_json)
+                 VALUES
+                    (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )
+            .bind(&row.benchmark_run_id)
+            .bind(&row.evidence_id)
+            .bind(row.subject_wallet_id.to_lowercase())
+            .bind(row.counterparty_id.to_lowercase())
+            .bind(&row.evidence_kind)
+            .bind(&row.strength_hint)
+            .bind(row.event_time_bucket.as_deref())
+            .bind(row.sequence_index)
+            .bind(row.metadata_json.as_deref())
+            .execute(&mut *tx)
+            .await
+            .context("insert_benchmark_snapshot: insert evidence row failed")?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn insert_benchmark_ground_truth_rows(
         &self,
         rows: &[BenchmarkGroundTruthEntityRow],
@@ -1274,6 +1355,7 @@ fn parse_shared_evidence_keys(evidence_json: Option<&str>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::query_scalar;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1693,5 +1775,104 @@ mod tests {
             dup_metrics.is_err(),
             "duplicate metrics rows must fail to preserve append-only contract"
         );
+    }
+
+    #[tokio::test]
+    async fn benchmark_snapshot_insert_is_atomic_on_failure() {
+        let repo = test_repo().await;
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-atomic-fail".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S5_service_hub_contaminated".to_string(),
+            seed: 5,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap-atomic".to_string(),
+            code_commit: "commit-atomic".to_string(),
+        };
+        let truth_rows = vec![BenchmarkGroundTruthEntityRow {
+            benchmark_run_id: run.benchmark_run_id.clone(),
+            entity_id: "e1".to_string(),
+            wallet_id: "0xabc".to_string(),
+            cohort: "governance".to_string(),
+            role_tag: None,
+        }];
+        let evidence_rows = vec![
+            BenchmarkSyntheticEvidenceRow {
+                benchmark_run_id: run.benchmark_run_id.clone(),
+                evidence_id: "dup-1".to_string(),
+                subject_wallet_id: "0xabc".to_string(),
+                counterparty_id: "0xfunder".to_string(),
+                evidence_kind: "funded_by".to_string(),
+                strength_hint: "medium".to_string(),
+                event_time_bucket: Some("t0".to_string()),
+                sequence_index: Some(1),
+                metadata_json: None,
+            },
+            BenchmarkSyntheticEvidenceRow {
+                benchmark_run_id: run.benchmark_run_id.clone(),
+                evidence_id: "dup-1".to_string(),
+                subject_wallet_id: "0xabc".to_string(),
+                counterparty_id: "0xfunder".to_string(),
+                evidence_kind: "funded_by".to_string(),
+                strength_hint: "medium".to_string(),
+                event_time_bucket: Some("t0".to_string()),
+                sequence_index: Some(2),
+                metadata_json: None,
+            },
+        ];
+
+        let res = repo
+            .insert_benchmark_snapshot(&run, &truth_rows, &evidence_rows)
+            .await;
+        assert!(res.is_err(), "duplicate evidence_id should fail");
+
+        let run_count: i64 =
+            query_scalar("SELECT COUNT(*) FROM benchmark_runs WHERE benchmark_run_id = ?1")
+                .bind("bench-atomic-fail")
+                .fetch_one(repo.pool())
+                .await
+                .expect("count benchmark run");
+        assert_eq!(run_count, 0, "failed snapshot insert must rollback run row");
+    }
+
+    #[tokio::test]
+    async fn benchmark_snapshot_rejects_mismatched_row_run_ids() {
+        let repo = test_repo().await;
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-run-main".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S1".to_string(),
+            seed: 1,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap".to_string(),
+            code_commit: "commit".to_string(),
+        };
+        let truth_rows = vec![BenchmarkGroundTruthEntityRow {
+            benchmark_run_id: "bench-run-other".to_string(),
+            entity_id: "e1".to_string(),
+            wallet_id: "0xabc".to_string(),
+            cohort: "governance".to_string(),
+            role_tag: None,
+        }];
+        let evidence_rows = vec![BenchmarkSyntheticEvidenceRow {
+            benchmark_run_id: run.benchmark_run_id.clone(),
+            evidence_id: "ev-1".to_string(),
+            subject_wallet_id: "0xabc".to_string(),
+            counterparty_id: "0xf".to_string(),
+            evidence_kind: "funded_by".to_string(),
+            strength_hint: "medium".to_string(),
+            event_time_bucket: Some("t0".to_string()),
+            sequence_index: Some(1),
+            metadata_json: None,
+        }];
+        let err = repo
+            .insert_benchmark_snapshot(&run, &truth_rows, &evidence_rows)
+            .await
+            .expect_err("mismatch should fail");
+        assert!(err.to_string().contains("run_id mismatch"));
     }
 }
