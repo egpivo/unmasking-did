@@ -1,4 +1,5 @@
 pub mod alchemy;
+pub mod benchmark;
 pub mod config;
 pub mod did;
 pub mod ens;

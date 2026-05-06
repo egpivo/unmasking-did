@@ -126,6 +126,77 @@ pub struct GraphExportArtifact {
     pub metadata_json: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct BenchmarkRun {
+    pub benchmark_run_id: String,
+    pub scenario_suite_id: String,
+    pub scenario_id: String,
+    pub seed: i64,
+    pub generator_version: String,
+    pub policy_profile_id: String,
+    pub policy_variant: String,
+    pub input_snapshot_hash: String,
+    pub code_commit: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BenchmarkGroundTruthEntityRow {
+    pub benchmark_run_id: String,
+    pub entity_id: String,
+    pub wallet_id: String,
+    pub cohort: String,
+    pub role_tag: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BenchmarkSyntheticEvidenceRow {
+    pub benchmark_run_id: String,
+    pub evidence_id: String,
+    pub subject_wallet_id: String,
+    pub counterparty_id: String,
+    pub evidence_kind: String,
+    pub strength_hint: String,
+    pub event_time_bucket: Option<String>,
+    pub sequence_index: Option<i64>,
+    pub metadata_json: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BenchmarkPolicyResultRow {
+    pub benchmark_run_id: String,
+    pub policy_variant: String,
+    pub pred_cluster_id: String,
+    pub wallet_id: String,
+    pub link_explanation_json: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BenchmarkEvalMetricsRow {
+    pub benchmark_run_id: String,
+    pub policy_variant: String,
+    pub precision: f64,
+    pub recall: f64,
+    pub f1: f64,
+    pub over_merge_rate: f64,
+    pub under_merge_rate: f64,
+    pub giant_component_inflation: f64,
+    pub cluster_purity: f64,
+    pub cluster_fragmentation: f64,
+    pub calibration_json_by_evidence_kind: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BenchmarkEvalDetailRow {
+    pub benchmark_run_id: String,
+    pub policy_variant: String,
+    pub truth_entity_id: String,
+    pub matched_pred_cluster_id: Option<String>,
+    pub split_count: i64,
+    pub merge_intrusion_count: i64,
+    pub dominant_error_kind: Option<String>,
+    pub detail_json: Option<String>,
+}
+
 pub async fn connect(database_url: &str) -> Result<SqlitePool> {
     let opts = SqliteConnectOptions::from_str(database_url)
         .with_context(|| format!("invalid SQLite URL: {database_url}"))?
@@ -759,6 +830,170 @@ impl Repo {
         Ok(())
     }
 
+    pub async fn start_benchmark_run(&self, run: &BenchmarkRun) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO benchmark_runs
+                (benchmark_run_id, scenario_suite_id, scenario_id, seed, generator_version,
+                 policy_profile_id, policy_variant, input_snapshot_hash, code_commit)
+             VALUES
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        )
+        .bind(&run.benchmark_run_id)
+        .bind(&run.scenario_suite_id)
+        .bind(&run.scenario_id)
+        .bind(run.seed)
+        .bind(&run.generator_version)
+        .bind(&run.policy_profile_id)
+        .bind(&run.policy_variant)
+        .bind(&run.input_snapshot_hash)
+        .bind(&run.code_commit)
+        .execute(&self.pool)
+        .await
+        .context("start_benchmark_run failed")?;
+        Ok(())
+    }
+
+    pub async fn insert_benchmark_ground_truth_rows(
+        &self,
+        rows: &[BenchmarkGroundTruthEntityRow],
+    ) -> Result<usize> {
+        let mut tx = self.pool.begin().await?;
+        let mut n = 0usize;
+        for row in rows {
+            let res = sqlx::query(
+                "INSERT INTO benchmark_ground_truth_entities
+                    (benchmark_run_id, entity_id, wallet_id, cohort, role_tag)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .bind(&row.benchmark_run_id)
+            .bind(&row.entity_id)
+            .bind(row.wallet_id.to_lowercase())
+            .bind(&row.cohort)
+            .bind(row.role_tag.as_deref())
+            .execute(&mut *tx)
+            .await
+            .context("insert_benchmark_ground_truth_rows row failed")?;
+            n += res.rows_affected() as usize;
+        }
+        tx.commit().await?;
+        Ok(n)
+    }
+
+    pub async fn insert_benchmark_synthetic_evidence_rows(
+        &self,
+        rows: &[BenchmarkSyntheticEvidenceRow],
+    ) -> Result<usize> {
+        let mut tx = self.pool.begin().await?;
+        let mut n = 0usize;
+        for row in rows {
+            let res = sqlx::query(
+                "INSERT INTO benchmark_synthetic_evidence
+                    (benchmark_run_id, evidence_id, subject_wallet_id, counterparty_id,
+                     evidence_kind, strength_hint, event_time_bucket, sequence_index, metadata_json)
+                 VALUES
+                    (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )
+            .bind(&row.benchmark_run_id)
+            .bind(&row.evidence_id)
+            .bind(row.subject_wallet_id.to_lowercase())
+            .bind(row.counterparty_id.to_lowercase())
+            .bind(&row.evidence_kind)
+            .bind(&row.strength_hint)
+            .bind(row.event_time_bucket.as_deref())
+            .bind(row.sequence_index)
+            .bind(row.metadata_json.as_deref())
+            .execute(&mut *tx)
+            .await
+            .context("insert_benchmark_synthetic_evidence_rows row failed")?;
+            n += res.rows_affected() as usize;
+        }
+        tx.commit().await?;
+        Ok(n)
+    }
+
+    pub async fn insert_benchmark_policy_results(
+        &self,
+        rows: &[BenchmarkPolicyResultRow],
+    ) -> Result<usize> {
+        let mut tx = self.pool.begin().await?;
+        let mut n = 0usize;
+        for row in rows {
+            let res = sqlx::query(
+                "INSERT INTO benchmark_policy_results
+                    (benchmark_run_id, policy_variant, pred_cluster_id, wallet_id, link_explanation_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .bind(&row.benchmark_run_id)
+            .bind(&row.policy_variant)
+            .bind(&row.pred_cluster_id)
+            .bind(row.wallet_id.to_lowercase())
+            .bind(row.link_explanation_json.as_deref())
+            .execute(&mut *tx)
+            .await
+            .context("insert_benchmark_policy_results row failed")?;
+            n += res.rows_affected() as usize;
+        }
+        tx.commit().await?;
+        Ok(n)
+    }
+
+    pub async fn insert_benchmark_eval_metrics(&self, row: &BenchmarkEvalMetricsRow) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO benchmark_eval_metrics
+                (benchmark_run_id, policy_variant, precision, recall, f1, over_merge_rate,
+                 under_merge_rate, giant_component_inflation, cluster_purity, cluster_fragmentation,
+                 calibration_json_by_evidence_kind)
+             VALUES
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        )
+        .bind(&row.benchmark_run_id)
+        .bind(&row.policy_variant)
+        .bind(row.precision)
+        .bind(row.recall)
+        .bind(row.f1)
+        .bind(row.over_merge_rate)
+        .bind(row.under_merge_rate)
+        .bind(row.giant_component_inflation)
+        .bind(row.cluster_purity)
+        .bind(row.cluster_fragmentation)
+        .bind(row.calibration_json_by_evidence_kind.as_deref())
+        .execute(&self.pool)
+        .await
+        .context("insert_benchmark_eval_metrics failed")?;
+        Ok(())
+    }
+
+    pub async fn insert_benchmark_eval_details(
+        &self,
+        rows: &[BenchmarkEvalDetailRow],
+    ) -> Result<usize> {
+        let mut tx = self.pool.begin().await?;
+        let mut n = 0usize;
+        for row in rows {
+            let res = sqlx::query(
+                "INSERT INTO benchmark_eval_details
+                    (benchmark_run_id, policy_variant, truth_entity_id, matched_pred_cluster_id,
+                     split_count, merge_intrusion_count, dominant_error_kind, detail_json)
+                 VALUES
+                    (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            )
+            .bind(&row.benchmark_run_id)
+            .bind(&row.policy_variant)
+            .bind(&row.truth_entity_id)
+            .bind(row.matched_pred_cluster_id.as_deref())
+            .bind(row.split_count)
+            .bind(row.merge_intrusion_count)
+            .bind(row.dominant_error_kind.as_deref())
+            .bind(row.detail_json.as_deref())
+            .execute(&mut *tx)
+            .await
+            .context("insert_benchmark_eval_details row failed")?;
+            n += res.rows_affected() as usize;
+        }
+        tx.commit().await?;
+        Ok(n)
+    }
+
     pub async fn insert_run_inputs(&self, run_id: &str, inputs: &[RunInputRow]) -> Result<usize> {
         let mut tx = self.pool.begin().await?;
         let mut n = 0usize;
@@ -1325,5 +1560,138 @@ mod tests {
         let map = repo.clusters_for_run_map("r1").await.expect("map");
         assert_eq!(map.get("c1").map(Vec::len), Some(2));
         assert_eq!(map.get("c2").map(Vec::len), Some(1));
+    }
+
+    #[tokio::test]
+    async fn benchmark_tables_round_trip_and_append_only_constraints() {
+        let repo = test_repo().await;
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-1".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S1_clean_shared_funder".to_string(),
+            seed: 42,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap-1".to_string(),
+            code_commit: "commit-1".to_string(),
+        };
+        repo.start_benchmark_run(&run)
+            .await
+            .expect("start benchmark run");
+
+        let n_truth = repo
+            .insert_benchmark_ground_truth_rows(&[
+                BenchmarkGroundTruthEntityRow {
+                    benchmark_run_id: run.benchmark_run_id.clone(),
+                    entity_id: "e1".to_string(),
+                    wallet_id: "0xaaa".to_string(),
+                    cohort: "governance".to_string(),
+                    role_tag: None,
+                },
+                BenchmarkGroundTruthEntityRow {
+                    benchmark_run_id: run.benchmark_run_id.clone(),
+                    entity_id: "e1".to_string(),
+                    wallet_id: "0xaab".to_string(),
+                    cohort: "governance".to_string(),
+                    role_tag: Some("coordinator".to_string()),
+                },
+            ])
+            .await
+            .expect("insert benchmark truth");
+        assert_eq!(n_truth, 2);
+
+        let n_evidence = repo
+            .insert_benchmark_synthetic_evidence_rows(&[BenchmarkSyntheticEvidenceRow {
+                benchmark_run_id: run.benchmark_run_id.clone(),
+                evidence_id: "ev-1".to_string(),
+                subject_wallet_id: "0xaaa".to_string(),
+                counterparty_id: "0xfunder".to_string(),
+                evidence_kind: "funded_by".to_string(),
+                strength_hint: "medium".to_string(),
+                event_time_bucket: Some("t0".to_string()),
+                sequence_index: Some(1),
+                metadata_json: Some(r#"{"scenario":"S1"}"#.to_string()),
+            }])
+            .await
+            .expect("insert benchmark evidence");
+        assert_eq!(n_evidence, 1);
+
+        let n_results = repo
+            .insert_benchmark_policy_results(&[BenchmarkPolicyResultRow {
+                benchmark_run_id: run.benchmark_run_id.clone(),
+                policy_variant: "naive_funded_by".to_string(),
+                pred_cluster_id: "c1".to_string(),
+                wallet_id: "0xaaa".to_string(),
+                link_explanation_json: Some(r#"{"k":"funded_by"}"#.to_string()),
+            }])
+            .await
+            .expect("insert benchmark policy result");
+        assert_eq!(n_results, 1);
+
+        repo.insert_benchmark_eval_metrics(&BenchmarkEvalMetricsRow {
+            benchmark_run_id: run.benchmark_run_id.clone(),
+            policy_variant: "naive_funded_by".to_string(),
+            precision: 0.8,
+            recall: 0.7,
+            f1: 0.746,
+            over_merge_rate: 0.1,
+            under_merge_rate: 0.2,
+            giant_component_inflation: 1.2,
+            cluster_purity: 0.9,
+            cluster_fragmentation: 1.1,
+            calibration_json_by_evidence_kind: Some(r#"{"funded_by":0.6}"#.to_string()),
+        })
+        .await
+        .expect("insert benchmark metrics");
+
+        let n_details = repo
+            .insert_benchmark_eval_details(&[BenchmarkEvalDetailRow {
+                benchmark_run_id: run.benchmark_run_id.clone(),
+                policy_variant: "naive_funded_by".to_string(),
+                truth_entity_id: "e1".to_string(),
+                matched_pred_cluster_id: Some("c1".to_string()),
+                split_count: 0,
+                merge_intrusion_count: 1,
+                dominant_error_kind: Some("funded_by".to_string()),
+                detail_json: Some(r#"{"note":"service_hub_risk"}"#.to_string()),
+            }])
+            .await
+            .expect("insert benchmark details");
+        assert_eq!(n_details, 1);
+
+        let dup_result = repo
+            .insert_benchmark_policy_results(&[BenchmarkPolicyResultRow {
+                benchmark_run_id: run.benchmark_run_id.clone(),
+                policy_variant: "naive_funded_by".to_string(),
+                pred_cluster_id: "c2".to_string(),
+                wallet_id: "0xaaa".to_string(),
+                link_explanation_json: Some(r#"{"k":"updated"}"#.to_string()),
+            }])
+            .await;
+        assert!(
+            dup_result.is_err(),
+            "duplicate policy results must fail to preserve append-only contract"
+        );
+
+        let dup_metrics = repo
+            .insert_benchmark_eval_metrics(&BenchmarkEvalMetricsRow {
+                benchmark_run_id: run.benchmark_run_id.clone(),
+                policy_variant: "naive_funded_by".to_string(),
+                precision: 0.1,
+                recall: 0.1,
+                f1: 0.1,
+                over_merge_rate: 0.9,
+                under_merge_rate: 0.9,
+                giant_component_inflation: 9.0,
+                cluster_purity: 0.1,
+                cluster_fragmentation: 9.0,
+                calibration_json_by_evidence_kind: None,
+            })
+            .await;
+        assert!(
+            dup_metrics.is_err(),
+            "duplicate metrics rows must fail to preserve append-only contract"
+        );
     }
 }
