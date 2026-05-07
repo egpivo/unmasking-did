@@ -121,6 +121,250 @@ pub struct ServiceHubContaminationSpec {
     pub wallet_fraction: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScenarioPreset {
+    S1CleanSharedFunder,
+    S2RepeatedFunders,
+    S3ShortBurst,
+    S4CommonSink,
+    S5ServiceHubContaminated,
+    S6SafeOwnerOverlap,
+    S7EnsOverlap,
+    S8DidControllerOverlap,
+    S9NegativeControlOnly,
+    S10MixedGovernanceControl,
+}
+
+impl ScenarioPreset {
+    pub fn id(&self) -> &'static str {
+        match self {
+            ScenarioPreset::S1CleanSharedFunder => "S1_clean_shared_funder",
+            ScenarioPreset::S2RepeatedFunders => "S2_repeated_funders",
+            ScenarioPreset::S3ShortBurst => "S3_short_burst",
+            ScenarioPreset::S4CommonSink => "S4_common_sink",
+            ScenarioPreset::S5ServiceHubContaminated => "S5_service_hub_contaminated",
+            ScenarioPreset::S6SafeOwnerOverlap => "S6_safe_owner_overlap",
+            ScenarioPreset::S7EnsOverlap => "S7_ens_overlap",
+            ScenarioPreset::S8DidControllerOverlap => "S8_did_controller_overlap",
+            ScenarioPreset::S9NegativeControlOnly => "S9_negative_control_only",
+            ScenarioPreset::S10MixedGovernanceControl => "S10_mixed_governance_control",
+        }
+    }
+
+    pub fn all() -> &'static [ScenarioPreset] {
+        &[
+            ScenarioPreset::S1CleanSharedFunder,
+            ScenarioPreset::S2RepeatedFunders,
+            ScenarioPreset::S3ShortBurst,
+            ScenarioPreset::S4CommonSink,
+            ScenarioPreset::S5ServiceHubContaminated,
+            ScenarioPreset::S6SafeOwnerOverlap,
+            ScenarioPreset::S7EnsOverlap,
+            ScenarioPreset::S8DidControllerOverlap,
+            ScenarioPreset::S9NegativeControlOnly,
+            ScenarioPreset::S10MixedGovernanceControl,
+        ]
+    }
+}
+
+pub fn scenario_preset_by_id(id: &str) -> Result<(ScenarioSpec, SyntheticEvidenceConfig)> {
+    let preset = ScenarioPreset::all()
+        .iter()
+        .find(|p| p.id() == id)
+        .copied()
+        .ok_or_else(|| anyhow::anyhow!("unknown scenario preset: {id}"))?;
+    Ok(scenario_preset_config(preset))
+}
+
+pub fn scenario_preset_config(preset: ScenarioPreset) -> (ScenarioSpec, SyntheticEvidenceConfig) {
+    match preset {
+        ScenarioPreset::S1CleanSharedFunder => (
+            ScenarioSpec {
+                scenario_id: preset.id().to_string(),
+                entity_count: 12,
+                wallets_per_entity: 2,
+                governance_ratio: 0.3,
+                control_ratio: 0.4,
+            },
+            SyntheticEvidenceConfig {
+                emit_funded_by: true,
+                emit_safe_owner: false,
+                emit_did_controller: false,
+                emit_ens_handle: false,
+                service_hub_contamination: None,
+                funded_by_keys_per_entity: 2,
+                sink_keys_per_entity: 0,
+                ..SyntheticEvidenceConfig::default()
+            },
+        ),
+        ScenarioPreset::S2RepeatedFunders => (
+            ScenarioSpec {
+                scenario_id: preset.id().to_string(),
+                entity_count: 12,
+                wallets_per_entity: 2,
+                governance_ratio: 0.3,
+                control_ratio: 0.4,
+            },
+            SyntheticEvidenceConfig {
+                emit_funded_by: true,
+                emit_safe_owner: false,
+                emit_did_controller: false,
+                emit_ens_handle: false,
+                service_hub_contamination: None,
+                funded_by_keys_per_entity: 4,
+                sink_keys_per_entity: 0,
+                ..SyntheticEvidenceConfig::default()
+            },
+        ),
+        ScenarioPreset::S3ShortBurst => (
+            ScenarioSpec {
+                scenario_id: preset.id().to_string(),
+                entity_count: 10,
+                wallets_per_entity: 2,
+                governance_ratio: 0.5,
+                control_ratio: 0.3,
+            },
+            SyntheticEvidenceConfig {
+                emit_funded_by: true,
+                emit_safe_owner: false,
+                emit_did_controller: false,
+                emit_ens_handle: false,
+                service_hub_contamination: None,
+                funded_by_keys_per_entity: 3,
+                sink_keys_per_entity: 0,
+                funded_by_wallet_time_step: 5,
+                funded_by_key_time_step: 1,
+                ..SyntheticEvidenceConfig::default()
+            },
+        ),
+        ScenarioPreset::S4CommonSink => (
+            ScenarioSpec {
+                scenario_id: preset.id().to_string(),
+                entity_count: 10,
+                wallets_per_entity: 2,
+                governance_ratio: 0.5,
+                control_ratio: 0.3,
+            },
+            SyntheticEvidenceConfig {
+                emit_funded_by: true,
+                emit_safe_owner: false,
+                emit_did_controller: false,
+                emit_ens_handle: false,
+                service_hub_contamination: None,
+                funded_by_keys_per_entity: 1,
+                sink_keys_per_entity: 2,
+                ..SyntheticEvidenceConfig::default()
+            },
+        ),
+        ScenarioPreset::S5ServiceHubContaminated => (
+            ScenarioSpec {
+                scenario_id: preset.id().to_string(),
+                entity_count: 36,
+                wallets_per_entity: 2,
+                governance_ratio: 0.25,
+                control_ratio: 0.25,
+            },
+            SyntheticEvidenceConfig {
+                emit_funded_by: true,
+                emit_safe_owner: false,
+                emit_did_controller: false,
+                emit_ens_handle: false,
+                service_hub_contamination: Some(ServiceHubContaminationSpec {
+                    wallet_fraction: 0.8,
+                }),
+                funded_by_keys_per_entity: 2,
+                sink_keys_per_entity: 1,
+                ..SyntheticEvidenceConfig::default()
+            },
+        ),
+        ScenarioPreset::S6SafeOwnerOverlap => (
+            ScenarioSpec {
+                scenario_id: preset.id().to_string(),
+                entity_count: 10,
+                wallets_per_entity: 2,
+                governance_ratio: 0.4,
+                control_ratio: 0.4,
+            },
+            SyntheticEvidenceConfig {
+                emit_funded_by: false,
+                emit_safe_owner: true,
+                emit_did_controller: false,
+                emit_ens_handle: false,
+                ..SyntheticEvidenceConfig::default()
+            },
+        ),
+        ScenarioPreset::S7EnsOverlap => (
+            ScenarioSpec {
+                scenario_id: preset.id().to_string(),
+                entity_count: 10,
+                wallets_per_entity: 2,
+                governance_ratio: 0.4,
+                control_ratio: 0.4,
+            },
+            SyntheticEvidenceConfig {
+                emit_funded_by: false,
+                emit_safe_owner: false,
+                emit_did_controller: false,
+                emit_ens_handle: true,
+                ..SyntheticEvidenceConfig::default()
+            },
+        ),
+        ScenarioPreset::S8DidControllerOverlap => (
+            ScenarioSpec {
+                scenario_id: preset.id().to_string(),
+                entity_count: 10,
+                wallets_per_entity: 2,
+                governance_ratio: 0.4,
+                control_ratio: 0.4,
+            },
+            SyntheticEvidenceConfig {
+                emit_funded_by: false,
+                emit_safe_owner: false,
+                emit_did_controller: true,
+                emit_ens_handle: false,
+                ..SyntheticEvidenceConfig::default()
+            },
+        ),
+        ScenarioPreset::S9NegativeControlOnly => (
+            ScenarioSpec {
+                scenario_id: preset.id().to_string(),
+                entity_count: 10,
+                wallets_per_entity: 1,
+                governance_ratio: 0.0,
+                control_ratio: 0.0,
+            },
+            SyntheticEvidenceConfig {
+                emit_funded_by: false,
+                emit_safe_owner: false,
+                emit_did_controller: false,
+                emit_ens_handle: false,
+                ..SyntheticEvidenceConfig::default()
+            },
+        ),
+        ScenarioPreset::S10MixedGovernanceControl => (
+            ScenarioSpec {
+                scenario_id: preset.id().to_string(),
+                entity_count: 16,
+                wallets_per_entity: 2,
+                governance_ratio: 0.45,
+                control_ratio: 0.45,
+            },
+            SyntheticEvidenceConfig {
+                emit_funded_by: true,
+                emit_safe_owner: true,
+                emit_did_controller: true,
+                emit_ens_handle: true,
+                service_hub_contamination: Some(ServiceHubContaminationSpec {
+                    wallet_fraction: 0.35,
+                }),
+                funded_by_keys_per_entity: 3,
+                sink_keys_per_entity: 1,
+                ..SyntheticEvidenceConfig::default()
+            },
+        ),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyntheticEvidenceRow {
     pub evidence_id: String,
@@ -154,6 +398,23 @@ impl Default for BenchmarkPolicyComparisonConfig {
             conservative_short_burst_block_delta: 5_000,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkSuiteCaseResult {
+    pub scenario_id: String,
+    pub seed: u64,
+    pub benchmark_run_id: String,
+    pub naive_metrics: BenchmarkEvalMetricsRow,
+    pub conservative_metrics: BenchmarkEvalMetricsRow,
+    pub report_json: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkSuiteResult {
+    pub suite_id: String,
+    pub case_count: usize,
+    pub cases: Vec<BenchmarkSuiteCaseResult>,
 }
 
 #[derive(Debug, Clone)]
@@ -571,6 +832,95 @@ impl SyntheticDatasetBuilder {
             "details": details,
         }))
     }
+}
+
+pub async fn run_scenario_suite(
+    repo: &Repo,
+    suite_id: &str,
+    scenario_ids: &[String],
+    seeds: &[u64],
+    policy_cfg: &BenchmarkPolicyComparisonConfig,
+    run_suffix: Option<&str>,
+) -> Result<BenchmarkSuiteResult> {
+    if scenario_ids.is_empty() || seeds.is_empty() {
+        bail!("scenario_ids and seeds must not be empty");
+    }
+
+    let mut cases = Vec::new();
+    for scenario_id in scenario_ids {
+        let (spec, evidence_cfg) = scenario_preset_by_id(scenario_id)?;
+        for seed in seeds {
+            let builder = SyntheticDatasetBuilder::new(spec.clone(), *seed);
+            let benchmark_run_id = suite_case_run_id(suite_id, scenario_id, *seed, run_suffix);
+            let run = BenchmarkRun {
+                benchmark_run_id: benchmark_run_id.clone(),
+                scenario_suite_id: suite_id.to_string(),
+                scenario_id: scenario_id.to_string(),
+                seed: *seed as i64,
+                generator_version: "v0".to_string(),
+                policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+                policy_variant: "naive_funded_by".to_string(),
+                input_snapshot_hash: suite_case_snapshot_hash(suite_id, scenario_id, *seed),
+                code_commit: std::env::var("GIT_COMMIT").unwrap_or_else(|_| "unknown".to_string()),
+            };
+            builder.persist_snapshot(repo, &run, &evidence_cfg).await?;
+            builder
+                .run_policy_comparison_and_persist(
+                    repo,
+                    &benchmark_run_id,
+                    &evidence_cfg,
+                    policy_cfg,
+                )
+                .await?;
+            let naive = builder
+                .evaluate_policy_metrics_and_persist(repo, &benchmark_run_id, "naive_funded_by")
+                .await?;
+            let conservative = builder
+                .evaluate_policy_metrics_and_persist(
+                    repo,
+                    &benchmark_run_id,
+                    "conservative_funded_by",
+                )
+                .await?;
+            let report_json = builder
+                .render_eval_report_json(repo, &benchmark_run_id)
+                .await?;
+            cases.push(BenchmarkSuiteCaseResult {
+                scenario_id: scenario_id.to_string(),
+                seed: *seed,
+                benchmark_run_id,
+                naive_metrics: naive,
+                conservative_metrics: conservative,
+                report_json,
+            });
+        }
+    }
+
+    Ok(BenchmarkSuiteResult {
+        suite_id: suite_id.to_string(),
+        case_count: cases.len(),
+        cases,
+    })
+}
+
+fn suite_case_run_id(
+    suite_id: &str,
+    scenario_id: &str,
+    seed: u64,
+    run_suffix: Option<&str>,
+) -> String {
+    let suffix = run_suffix.unwrap_or("default");
+    let h = stable_hash64(&format!(
+        "suite_run:{suite_id}:{scenario_id}:{seed}:{suffix}"
+    ));
+    format!("bench_{h:016x}")
+}
+
+fn suite_case_snapshot_hash(suite_id: &str, scenario_id: &str, seed: u64) -> String {
+    format!(
+        "snap_{:016x}",
+        stable_hash64(&format!("{suite_id}:{scenario_id}:{seed}"))
+    )
 }
 
 fn build_eval_detail_rows(
@@ -1974,5 +2324,63 @@ mod tests {
             cluster_count, 2,
             "wallets within each truth entity should merge via sink keys"
         );
+    }
+
+    #[test]
+    fn all_scenario_presets_generate_valid_ground_truth_and_evidence() {
+        for preset in ScenarioPreset::all() {
+            let (spec, cfg) = scenario_preset_config(*preset);
+            assert_eq!(spec.scenario_id, preset.id());
+            spec.validate().expect("scenario spec valid");
+
+            let builder = SyntheticDatasetBuilder::new(spec.clone(), 2026);
+            let ds = builder.build_ground_truth().expect("ground truth");
+            assert_eq!(
+                ds.wallets.len(),
+                spec.entity_count * spec.wallets_per_entity,
+                "wallet cardinality must match preset spec"
+            );
+            let evidence = builder.build_evidence_rows(&cfg).expect("evidence");
+            if cfg.emit_funded_by
+                || cfg.emit_safe_owner
+                || cfg.emit_did_controller
+                || cfg.emit_ens_handle
+            {
+                assert!(
+                    !evidence.is_empty(),
+                    "preset {} should emit at least one evidence row",
+                    preset.id()
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn suite_runner_executes_multiple_cases_and_returns_summary() {
+        let repo = test_repo().await;
+        let scenarios = vec![
+            "S1_clean_shared_funder".to_string(),
+            "S5_service_hub_contaminated".to_string(),
+        ];
+        let seeds = vec![7u64, 8u64];
+        let result = run_scenario_suite(
+            &repo,
+            "suite_smoke",
+            &scenarios,
+            &seeds,
+            &BenchmarkPolicyComparisonConfig::default(),
+            Some("test"),
+        )
+        .await
+        .expect("suite run");
+        assert_eq!(result.suite_id, "suite_smoke");
+        assert_eq!(result.case_count, scenarios.len() * seeds.len());
+        assert_eq!(result.cases.len(), scenarios.len() * seeds.len());
+        for case in &result.cases {
+            assert!(
+                case.report_json.get("metrics").is_some(),
+                "each case should include report metrics json"
+            );
+        }
     }
 }

@@ -7,6 +7,7 @@ use tracing_subscriber::EnvFilter;
 
 use tracing::warn;
 use unmasking_did::alchemy::AlchemyClient;
+use unmasking_did::benchmark::{run_scenario_suite, BenchmarkPolicyComparisonConfig};
 use unmasking_did::config::Config;
 use unmasking_did::did::DidDocument;
 use unmasking_did::ens::EnsRecord;
@@ -244,6 +245,39 @@ enum Command {
         #[arg(long)]
         linkage_params: Option<String>,
     },
+    /// Run synthetic benchmark suite for Phase 4.5.
+    #[command(name = "benchmark-suite")]
+    BenchmarkSuite {
+        /// Logical suite id used in benchmark_run metadata.
+        #[arg(long)]
+        suite_id: Option<String>,
+        /// Optional run suffix. If omitted, current unix timestamp is used so
+        /// repeated runs against the same DB do not collide.
+        #[arg(long)]
+        run_suffix: Option<String>,
+        /// Comma-separated scenario ids (S1..S10 preset ids).
+        #[arg(
+            long,
+            value_delimiter = ',',
+            default_value = "S1_clean_shared_funder,S5_service_hub_contaminated,S9_negative_control_only"
+        )]
+        scenarios: Vec<String>,
+        /// Comma-separated seeds.
+        #[arg(long, value_delimiter = ',', default_value = "42,43")]
+        seeds: Vec<u64>,
+        #[arg(long, default_value_t = 1)]
+        min_evidence: usize,
+        #[arg(long, default_value_t = FAN_OUT_CAP)]
+        fan_out_cap: usize,
+        #[arg(long, default_value_t = FAN_OUT_CAP)]
+        conservative_service_fan_out_cap: usize,
+        #[arg(long, default_value_t = FUNDED_BY_MIN_SHARED_KEYS)]
+        conservative_min_shared_keys: usize,
+        #[arg(long, default_value_t = FUNDED_BY_MIN_SHORT_BURST_HITS)]
+        conservative_min_short_burst_hits: usize,
+        #[arg(long, default_value_t = FUNDED_BY_BURST_BLOCK_DELTA)]
+        conservative_short_burst_block_delta: i64,
+    },
     /// Manually record one DID document's controller relationship.
     /// When `--controller` differs from `--address`, the relationship
     /// is emitted as STRONG `did_controller` evidence — a single
@@ -395,6 +429,35 @@ async fn main() -> Result<()> {
             ablation,
             linkage_params,
         } => run_eval(&repo, gold, min_evidence, ablation, linkage_params).await,
+        Command::BenchmarkSuite {
+            suite_id,
+            run_suffix,
+            scenarios,
+            seeds,
+            min_evidence,
+            fan_out_cap,
+            conservative_service_fan_out_cap,
+            conservative_min_shared_keys,
+            conservative_min_short_burst_hits,
+            conservative_short_burst_block_delta,
+        } => {
+            run_benchmark_suite(
+                &repo,
+                suite_id,
+                run_suffix,
+                scenarios,
+                seeds,
+                BenchmarkPolicyComparisonConfig {
+                    min_evidence,
+                    fan_out_cap,
+                    conservative_service_fan_out_cap,
+                    conservative_min_shared_keys,
+                    conservative_min_short_burst_hits,
+                    conservative_short_burst_block_delta,
+                },
+            )
+            .await
+        }
         Command::ArbitrumGov {
             database,
             governance_csv,
@@ -860,6 +923,34 @@ async fn run_eval(
     Ok(())
 }
 
+async fn run_benchmark_suite(
+    repo: &Repo,
+    suite_id: Option<String>,
+    run_suffix: Option<String>,
+    scenarios: Vec<String>,
+    seeds: Vec<u64>,
+    policy_cfg: BenchmarkPolicyComparisonConfig,
+) -> Result<()> {
+    let suite_id = suite_id.unwrap_or_else(|| "phase45_suite_v0".to_string());
+    let effective_suffix = run_suffix.unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_else(|_| "0".to_string())
+    });
+    let result = run_scenario_suite(
+        repo,
+        &suite_id,
+        &scenarios,
+        &seeds,
+        &policy_cfg,
+        Some(&effective_suffix),
+    )
+    .await?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+
 async fn run_score_pairs(
     repo: &Repo,
     addresses: Vec<String>,
@@ -1120,6 +1211,50 @@ mod tests {
         );
         assert_eq!(min_evidence, 1);
         assert!(!overwrite_db);
+    }
+
+    #[test]
+    fn cli_benchmark_suite_defaults_parse() {
+        let cli = Cli::try_parse_from(["unmasking-did", "benchmark-suite"])
+            .expect("parse benchmark-suite");
+        let Command::BenchmarkSuite {
+            suite_id,
+            run_suffix,
+            scenarios,
+            seeds,
+            min_evidence,
+            fan_out_cap,
+            conservative_service_fan_out_cap,
+            conservative_min_shared_keys,
+            conservative_min_short_burst_hits,
+            conservative_short_burst_block_delta,
+        } = cli.command
+        else {
+            panic!("expected benchmark-suite command")
+        };
+        assert!(suite_id.is_none());
+        assert!(run_suffix.is_none());
+        assert_eq!(
+            scenarios,
+            vec![
+                "S1_clean_shared_funder".to_string(),
+                "S5_service_hub_contaminated".to_string(),
+                "S9_negative_control_only".to_string()
+            ]
+        );
+        assert_eq!(seeds, vec![42, 43]);
+        assert_eq!(min_evidence, 1);
+        assert_eq!(fan_out_cap, FAN_OUT_CAP);
+        assert_eq!(conservative_service_fan_out_cap, FAN_OUT_CAP);
+        assert_eq!(conservative_min_shared_keys, FUNDED_BY_MIN_SHARED_KEYS);
+        assert_eq!(
+            conservative_min_short_burst_hits,
+            FUNDED_BY_MIN_SHORT_BURST_HITS
+        );
+        assert_eq!(
+            conservative_short_burst_block_delta,
+            FUNDED_BY_BURST_BLOCK_DELTA
+        );
     }
 
     #[tokio::test]
