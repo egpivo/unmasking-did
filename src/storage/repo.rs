@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use std::str::FromStr;
@@ -170,7 +171,7 @@ pub struct BenchmarkPolicyResultRow {
     pub link_explanation_json: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BenchmarkEvalMetricsRow {
     pub benchmark_run_id: String,
     pub policy_variant: String,
@@ -185,7 +186,7 @@ pub struct BenchmarkEvalMetricsRow {
     pub calibration_json_by_evidence_kind: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BenchmarkEvalDetailRow {
     pub benchmark_run_id: String,
     pub policy_variant: String,
@@ -1075,6 +1076,186 @@ impl Repo {
         Ok(n)
     }
 
+    pub async fn insert_benchmark_eval_bundle(
+        &self,
+        metrics: &BenchmarkEvalMetricsRow,
+        details: &[BenchmarkEvalDetailRow],
+    ) -> Result<usize> {
+        if details.iter().any(|d| {
+            d.benchmark_run_id != metrics.benchmark_run_id
+                || d.policy_variant != metrics.policy_variant
+        }) {
+            bail!("insert_benchmark_eval_bundle: detail row run/policy mismatch");
+        }
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO benchmark_eval_metrics
+                (benchmark_run_id, policy_variant, precision, recall, f1, over_merge_rate,
+                 under_merge_rate, giant_component_inflation, cluster_purity, cluster_fragmentation,
+                 calibration_json_by_evidence_kind)
+             VALUES
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        )
+        .bind(&metrics.benchmark_run_id)
+        .bind(&metrics.policy_variant)
+        .bind(metrics.precision)
+        .bind(metrics.recall)
+        .bind(metrics.f1)
+        .bind(metrics.over_merge_rate)
+        .bind(metrics.under_merge_rate)
+        .bind(metrics.giant_component_inflation)
+        .bind(metrics.cluster_purity)
+        .bind(metrics.cluster_fragmentation)
+        .bind(metrics.calibration_json_by_evidence_kind.as_deref())
+        .execute(&mut *tx)
+        .await
+        .context("insert_benchmark_eval_bundle: insert metrics failed")?;
+
+        let mut n = 0usize;
+        for row in details {
+            let res = sqlx::query(
+                "INSERT INTO benchmark_eval_details
+                    (benchmark_run_id, policy_variant, truth_entity_id, matched_pred_cluster_id,
+                     split_count, merge_intrusion_count, dominant_error_kind, detail_json)
+                 VALUES
+                    (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            )
+            .bind(&row.benchmark_run_id)
+            .bind(&row.policy_variant)
+            .bind(&row.truth_entity_id)
+            .bind(row.matched_pred_cluster_id.as_deref())
+            .bind(row.split_count)
+            .bind(row.merge_intrusion_count)
+            .bind(row.dominant_error_kind.as_deref())
+            .bind(row.detail_json.as_deref())
+            .execute(&mut *tx)
+            .await
+            .context("insert_benchmark_eval_bundle: insert detail row failed")?;
+            n += res.rows_affected() as usize;
+        }
+        tx.commit().await?;
+        Ok(n)
+    }
+
+    pub async fn benchmark_policy_assignments(
+        &self,
+        benchmark_run_id: &str,
+        policy_variant: &str,
+    ) -> Result<HashMap<String, String>> {
+        let rows = sqlx::query(
+            "SELECT wallet_id, pred_cluster_id
+             FROM benchmark_policy_results
+             WHERE benchmark_run_id = ?1 AND policy_variant = ?2",
+        )
+        .bind(benchmark_run_id)
+        .bind(policy_variant)
+        .fetch_all(&self.pool)
+        .await
+        .context("benchmark_policy_assignments query failed")?;
+        let mut out = HashMap::with_capacity(rows.len());
+        for row in rows {
+            let wallet: String = row.get("wallet_id");
+            let cluster: String = row.get("pred_cluster_id");
+            out.insert(wallet, cluster);
+        }
+        Ok(out)
+    }
+
+    pub async fn benchmark_eval_metrics_for_run(
+        &self,
+        benchmark_run_id: &str,
+    ) -> Result<Vec<BenchmarkEvalMetricsRow>> {
+        let rows = sqlx::query(
+            "SELECT benchmark_run_id, policy_variant, precision, recall, f1, over_merge_rate,
+                    under_merge_rate, giant_component_inflation, cluster_purity, cluster_fragmentation,
+                    calibration_json_by_evidence_kind
+             FROM benchmark_eval_metrics
+             WHERE benchmark_run_id = ?1
+             ORDER BY policy_variant ASC",
+        )
+        .bind(benchmark_run_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("benchmark_eval_metrics_for_run query failed")?;
+        Ok(rows
+            .into_iter()
+            .map(|row| BenchmarkEvalMetricsRow {
+                benchmark_run_id: row.get("benchmark_run_id"),
+                policy_variant: row.get("policy_variant"),
+                precision: row.get("precision"),
+                recall: row.get("recall"),
+                f1: row.get("f1"),
+                over_merge_rate: row.get("over_merge_rate"),
+                under_merge_rate: row.get("under_merge_rate"),
+                giant_component_inflation: row.get("giant_component_inflation"),
+                cluster_purity: row.get("cluster_purity"),
+                cluster_fragmentation: row.get("cluster_fragmentation"),
+                calibration_json_by_evidence_kind: row.get("calibration_json_by_evidence_kind"),
+            })
+            .collect())
+    }
+
+    pub async fn benchmark_eval_details_for_run(
+        &self,
+        benchmark_run_id: &str,
+    ) -> Result<Vec<BenchmarkEvalDetailRow>> {
+        let rows = sqlx::query(
+            "SELECT benchmark_run_id, policy_variant, truth_entity_id, matched_pred_cluster_id,
+                    split_count, merge_intrusion_count, dominant_error_kind, detail_json
+             FROM benchmark_eval_details
+             WHERE benchmark_run_id = ?1
+             ORDER BY policy_variant ASC, truth_entity_id ASC",
+        )
+        .bind(benchmark_run_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("benchmark_eval_details_for_run query failed")?;
+        Ok(rows
+            .into_iter()
+            .map(|row| BenchmarkEvalDetailRow {
+                benchmark_run_id: row.get("benchmark_run_id"),
+                policy_variant: row.get("policy_variant"),
+                truth_entity_id: row.get("truth_entity_id"),
+                matched_pred_cluster_id: row.get("matched_pred_cluster_id"),
+                split_count: row.get("split_count"),
+                merge_intrusion_count: row.get("merge_intrusion_count"),
+                dominant_error_kind: row.get("dominant_error_kind"),
+                detail_json: row.get("detail_json"),
+            })
+            .collect())
+    }
+
+    pub async fn benchmark_synthetic_evidence_rows(
+        &self,
+        benchmark_run_id: &str,
+    ) -> Result<Vec<BenchmarkSyntheticEvidenceRow>> {
+        let rows = sqlx::query(
+            "SELECT benchmark_run_id, evidence_id, subject_wallet_id, counterparty_id,
+                    evidence_kind, strength_hint, event_time_bucket, sequence_index, metadata_json
+             FROM benchmark_synthetic_evidence
+             WHERE benchmark_run_id = ?1
+             ORDER BY evidence_id ASC",
+        )
+        .bind(benchmark_run_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("benchmark_synthetic_evidence_rows query failed")?;
+        Ok(rows
+            .into_iter()
+            .map(|row| BenchmarkSyntheticEvidenceRow {
+                benchmark_run_id: row.get("benchmark_run_id"),
+                evidence_id: row.get("evidence_id"),
+                subject_wallet_id: row.get("subject_wallet_id"),
+                counterparty_id: row.get("counterparty_id"),
+                evidence_kind: row.get("evidence_kind"),
+                strength_hint: row.get("strength_hint"),
+                event_time_bucket: row.get("event_time_bucket"),
+                sequence_index: row.get("sequence_index"),
+                metadata_json: row.get("metadata_json"),
+            })
+            .collect())
+    }
+
     pub async fn insert_run_inputs(&self, run_id: &str, inputs: &[RunInputRow]) -> Result<usize> {
         let mut tx = self.pool.begin().await?;
         let mut n = 0usize;
@@ -1874,5 +2055,66 @@ mod tests {
             .await
             .expect_err("mismatch should fail");
         assert!(err.to_string().contains("run_id mismatch"));
+    }
+
+    #[tokio::test]
+    async fn benchmark_eval_bundle_is_atomic_on_detail_failure() {
+        let repo = test_repo().await;
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-bundle-atomic".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S1".to_string(),
+            seed: 1,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap".to_string(),
+            code_commit: "commit".to_string(),
+        };
+        repo.start_benchmark_run(&run)
+            .await
+            .expect("start benchmark run");
+
+        let metrics = BenchmarkEvalMetricsRow {
+            benchmark_run_id: run.benchmark_run_id.clone(),
+            policy_variant: "naive_funded_by".to_string(),
+            precision: 0.5,
+            recall: 0.5,
+            f1: 0.5,
+            over_merge_rate: 0.5,
+            under_merge_rate: 0.5,
+            giant_component_inflation: 1.0,
+            cluster_purity: 0.5,
+            cluster_fragmentation: 1.0,
+            calibration_json_by_evidence_kind: None,
+        };
+        let bad_details = vec![BenchmarkEvalDetailRow {
+            benchmark_run_id: run.benchmark_run_id.clone(),
+            policy_variant: "conservative_funded_by".to_string(),
+            truth_entity_id: "e1".to_string(),
+            matched_pred_cluster_id: Some("c1".to_string()),
+            split_count: 1,
+            merge_intrusion_count: 0,
+            dominant_error_kind: Some("none".to_string()),
+            detail_json: None,
+        }];
+        let err = repo
+            .insert_benchmark_eval_bundle(&metrics, &bad_details)
+            .await
+            .expect_err("mismatched policy in details should fail");
+        assert!(err.to_string().contains("detail row run/policy mismatch"));
+
+        let metrics_count: i64 = query_scalar(
+            "SELECT COUNT(*) FROM benchmark_eval_metrics
+             WHERE benchmark_run_id = ?1 AND policy_variant = 'naive_funded_by'",
+        )
+        .bind("bench-bundle-atomic")
+        .fetch_one(repo.pool())
+        .await
+        .expect("metrics count");
+        assert_eq!(
+            metrics_count, 0,
+            "bundle failure should not persist metrics"
+        );
     }
 }

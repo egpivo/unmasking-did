@@ -1,11 +1,12 @@
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::evidence::{Attestation, EvidenceKind, Strength};
 use crate::linking::{cluster_from_attestations, FundedByMergePolicy};
 use crate::storage::{
-    BenchmarkGroundTruthEntityRow, BenchmarkPolicyResultRow, BenchmarkRun,
-    BenchmarkSyntheticEvidenceRow, Repo,
+    BenchmarkEvalDetailRow, BenchmarkEvalMetricsRow, BenchmarkGroundTruthEntityRow,
+    BenchmarkPolicyResultRow, BenchmarkRun, BenchmarkSyntheticEvidenceRow, Repo,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +79,22 @@ pub struct SyntheticEvidenceConfig {
     pub emit_safe_owner: bool,
     pub emit_did_controller: bool,
     pub emit_ens_handle: bool,
+    /// Optional service-hub style contamination. When enabled, a single
+    /// high-fanout `funded_by` key touches wallets across unrelated entities.
+    pub service_hub_contamination: Option<ServiceHubContaminationSpec>,
+    /// Number of distinct shared `funded_by` keys emitted per non-negative
+    /// entity. More keys enable conservative policy merges to use the
+    /// funded-only repeated burst pathway.
+    pub funded_by_keys_per_entity: usize,
+    /// Number of additional shared "sink-like" `funded_by` keys emitted per
+    /// entity at a later time offset. This approximates consolidation-style
+    /// behavior using only the existing `funded_by` evidence kind.
+    pub sink_keys_per_entity: usize,
+    /// Synthetic time steps for short-burst evaluation.
+    pub funded_by_wallet_time_step: i64,
+    pub funded_by_key_time_step: i64,
+    /// Later time offset for sink/consolidation-style keys.
+    pub sink_time_offset: i64,
 }
 
 impl Default for SyntheticEvidenceConfig {
@@ -87,8 +104,21 @@ impl Default for SyntheticEvidenceConfig {
             emit_safe_owner: true,
             emit_did_controller: true,
             emit_ens_handle: true,
+            service_hub_contamination: None,
+            funded_by_keys_per_entity: 3,
+            sink_keys_per_entity: 1,
+            funded_by_wallet_time_step: 100,
+            funded_by_key_time_step: 10,
+            sink_time_offset: 20_000,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceHubContaminationSpec {
+    /// Fraction of all wallets that receive the hub `funded_by` edge.
+    /// Must be in \([0, 1]\).
+    pub wallet_fraction: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -297,6 +327,383 @@ impl SyntheticDatasetBuilder {
         let _ = repo.insert_benchmark_policy_results(&rows).await?;
         Ok(())
     }
+
+    pub async fn evaluate_policy_metrics_and_persist(
+        &self,
+        repo: &Repo,
+        benchmark_run_id: &str,
+        policy_variant: &str,
+    ) -> Result<BenchmarkEvalMetricsRow> {
+        let dataset = self.build_ground_truth()?;
+        let mut truth_by_wallet: HashMap<String, String> = HashMap::new();
+        for w in &dataset.wallets {
+            truth_by_wallet.insert(w.wallet_id.clone(), w.entity_id.clone());
+        }
+        let pred_by_wallet = repo
+            .benchmark_policy_assignments(benchmark_run_id, policy_variant)
+            .await?;
+        let truth_wallets: BTreeSet<String> = truth_by_wallet.keys().cloned().collect();
+        let pred_wallets: BTreeSet<String> = pred_by_wallet.keys().cloned().collect();
+        if truth_wallets != pred_wallets {
+            let missing = truth_wallets
+                .difference(&pred_wallets)
+                .cloned()
+                .collect::<Vec<_>>();
+            let extra = pred_wallets
+                .difference(&truth_wallets)
+                .cloned()
+                .collect::<Vec<_>>();
+            bail!(
+                "predicted wallet set mismatch: missing={:?} extra={:?}",
+                missing,
+                extra
+            );
+        }
+
+        let wallets = truth_by_wallet.keys().cloned().collect::<Vec<_>>();
+        let mut tp = 0usize;
+        let mut fp = 0usize;
+        let mut fn_ = 0usize;
+        let mut predicted_same = 0usize;
+        let mut truth_same = 0usize;
+        for i in 0..wallets.len() {
+            for j in (i + 1)..wallets.len() {
+                let wi = &wallets[i];
+                let wj = &wallets[j];
+                let same_truth = truth_by_wallet[wi] == truth_by_wallet[wj];
+                let same_pred = pred_by_wallet[wi] == pred_by_wallet[wj];
+                if same_truth {
+                    truth_same += 1;
+                }
+                if same_pred {
+                    predicted_same += 1;
+                }
+                match (same_truth, same_pred) {
+                    (true, true) => tp += 1,
+                    (false, true) => fp += 1,
+                    (true, false) => fn_ += 1,
+                    (false, false) => {}
+                }
+            }
+        }
+
+        let precision = if predicted_same == 0 {
+            if truth_same == 0 {
+                1.0
+            } else {
+                0.0
+            }
+        } else {
+            tp as f64 / predicted_same as f64
+        };
+        let recall = if truth_same == 0 {
+            if predicted_same == 0 {
+                1.0
+            } else {
+                0.0
+            }
+        } else {
+            tp as f64 / truth_same as f64
+        };
+        let f1 = if (precision + recall) == 0.0 {
+            0.0
+        } else {
+            2.0 * precision * recall / (precision + recall)
+        };
+        let over_merge_rate = if predicted_same == 0 {
+            0.0
+        } else {
+            fp as f64 / predicted_same as f64
+        };
+        let under_merge_rate = if truth_same == 0 {
+            0.0
+        } else {
+            fn_ as f64 / truth_same as f64
+        };
+
+        let mut truth_sizes: HashMap<String, usize> = HashMap::new();
+        let mut pred_sizes: HashMap<String, usize> = HashMap::new();
+        let mut pred_to_truth_counts: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+        let mut truth_to_pred_clusters: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for wallet in &wallets {
+            let truth = truth_by_wallet[wallet].clone();
+            let pred = pred_by_wallet[wallet].clone();
+            *truth_sizes.entry(truth.clone()).or_insert(0) += 1;
+            *pred_sizes.entry(pred.clone()).or_insert(0) += 1;
+            *pred_to_truth_counts
+                .entry(pred.clone())
+                .or_default()
+                .entry(truth.clone())
+                .or_insert(0) += 1;
+            truth_to_pred_clusters
+                .entry(truth)
+                .or_default()
+                .insert(pred);
+        }
+        let truth_largest = truth_sizes.values().copied().max().unwrap_or(1) as f64;
+        let pred_largest = pred_sizes.values().copied().max().unwrap_or(0) as f64;
+        let giant_component_inflation = pred_largest / truth_largest;
+
+        let total_wallets = wallets.len().max(1) as f64;
+        let mut purity_weighted_sum = 0usize;
+        for counts in pred_to_truth_counts.values() {
+            let cluster_size: usize = counts.values().sum();
+            let dominant_truth = counts.values().copied().max().unwrap_or(0);
+            purity_weighted_sum += dominant_truth.min(cluster_size);
+        }
+        let cluster_purity = purity_weighted_sum as f64 / total_wallets;
+
+        let mut frag_sum = 0usize;
+        for pred_set in truth_to_pred_clusters.values() {
+            frag_sum += pred_set.len();
+        }
+        let cluster_fragmentation = if truth_to_pred_clusters.is_empty() {
+            0.0
+        } else {
+            frag_sum as f64 / truth_to_pred_clusters.len() as f64
+        };
+
+        let persisted_evidence = repo
+            .benchmark_synthetic_evidence_rows(benchmark_run_id)
+            .await?;
+        let calibration_json_by_evidence_kind = Some(compute_evidence_kind_calibration_json(
+            &dataset.wallets,
+            &persisted_evidence,
+        )?);
+
+        let detail_rows = build_eval_detail_rows(
+            benchmark_run_id,
+            policy_variant,
+            &truth_by_wallet,
+            &pred_by_wallet,
+        );
+
+        let row = BenchmarkEvalMetricsRow {
+            benchmark_run_id: benchmark_run_id.to_string(),
+            policy_variant: policy_variant.to_string(),
+            precision,
+            recall,
+            f1,
+            over_merge_rate,
+            under_merge_rate,
+            giant_component_inflation,
+            cluster_purity,
+            cluster_fragmentation,
+            calibration_json_by_evidence_kind,
+        };
+        let _ = repo
+            .insert_benchmark_eval_bundle(&row, &detail_rows)
+            .await?;
+        Ok(row)
+    }
+
+    pub async fn render_eval_report_markdown(
+        &self,
+        repo: &Repo,
+        benchmark_run_id: &str,
+    ) -> Result<String> {
+        let metrics = repo
+            .benchmark_eval_metrics_for_run(benchmark_run_id)
+            .await?;
+        let details = repo
+            .benchmark_eval_details_for_run(benchmark_run_id)
+            .await?;
+        if metrics.is_empty() {
+            bail!("no benchmark eval metrics found for run: {benchmark_run_id}");
+        }
+        let mut out = String::new();
+        out.push_str("# Benchmark Evaluation Report\n\n");
+        out.push_str(&format!("- benchmark_run_id: `{benchmark_run_id}`\n"));
+        out.push_str(
+            "- caveat: coordination-structure benchmark only; no maliciousness attribution.\n\n",
+        );
+        out.push_str("## Policy Metrics\n\n");
+        for m in &metrics {
+            out.push_str(&format!("### `{}`\n", m.policy_variant));
+            out.push_str(&format!("- precision: {:.4}\n", m.precision));
+            out.push_str(&format!("- recall: {:.4}\n", m.recall));
+            out.push_str(&format!("- f1: {:.4}\n", m.f1));
+            out.push_str(&format!("- over_merge_rate: {:.4}\n", m.over_merge_rate));
+            out.push_str(&format!("- under_merge_rate: {:.4}\n", m.under_merge_rate));
+            out.push_str(&format!(
+                "- giant_component_inflation: {:.4}\n",
+                m.giant_component_inflation
+            ));
+            out.push_str(&format!("- cluster_purity: {:.4}\n", m.cluster_purity));
+            out.push_str(&format!(
+                "- cluster_fragmentation: {:.4}\n\n",
+                m.cluster_fragmentation
+            ));
+        }
+
+        out.push_str("## Entity-Level Diagnostics\n\n");
+        for d in &details {
+            out.push_str(&format!(
+                "- policy=`{}` truth_entity=`{}` split_count={} merge_intrusion_count={} dominant_error_kind=`{}`\n",
+                d.policy_variant,
+                d.truth_entity_id,
+                d.split_count,
+                d.merge_intrusion_count,
+                d.dominant_error_kind.clone().unwrap_or_else(|| "unknown".to_string())
+            ));
+        }
+        Ok(out)
+    }
+
+    pub async fn render_eval_report_json(
+        &self,
+        repo: &Repo,
+        benchmark_run_id: &str,
+    ) -> Result<serde_json::Value> {
+        let metrics = repo
+            .benchmark_eval_metrics_for_run(benchmark_run_id)
+            .await?;
+        let details = repo
+            .benchmark_eval_details_for_run(benchmark_run_id)
+            .await?;
+        if metrics.is_empty() {
+            bail!("no benchmark eval metrics found for run: {benchmark_run_id}");
+        }
+        Ok(serde_json::json!({
+            "benchmark_run_id": benchmark_run_id,
+            "caveat": "Coordination-structure benchmark only; no maliciousness attribution.",
+            "metrics": metrics,
+            "details": details,
+        }))
+    }
+}
+
+fn build_eval_detail_rows(
+    benchmark_run_id: &str,
+    policy_variant: &str,
+    truth_by_wallet: &HashMap<String, String>,
+    pred_by_wallet: &HashMap<String, String>,
+) -> Vec<BenchmarkEvalDetailRow> {
+    let mut truth_to_wallets: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut pred_to_truth_counts: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+    for (wallet, truth) in truth_by_wallet {
+        let pred = pred_by_wallet.get(wallet).cloned().unwrap_or_default();
+        truth_to_wallets
+            .entry(truth.clone())
+            .or_default()
+            .push(wallet.clone());
+        *pred_to_truth_counts
+            .entry(pred)
+            .or_default()
+            .entry(truth.clone())
+            .or_insert(0) += 1;
+    }
+
+    let mut out = Vec::new();
+    for (truth_entity_id, wallets) in truth_to_wallets {
+        let mut cluster_counts: BTreeMap<String, usize> = BTreeMap::new();
+        for wallet in &wallets {
+            let pred = pred_by_wallet.get(wallet).cloned().unwrap_or_default();
+            *cluster_counts.entry(pred).or_insert(0) += 1;
+        }
+        let matched_pred_cluster_id = cluster_counts
+            .iter()
+            .max_by_key(|(_, n)| *n)
+            .map(|(cluster, _)| cluster.clone());
+        let split_count = cluster_counts.len() as i64;
+
+        let merge_intrusion_count = matched_pred_cluster_id
+            .as_ref()
+            .and_then(|cluster| pred_to_truth_counts.get(cluster))
+            .map(|by_truth| {
+                by_truth
+                    .iter()
+                    .filter(|(truth, _)| *truth != &truth_entity_id)
+                    .map(|(_, count)| *count as i64)
+                    .sum::<i64>()
+            })
+            .unwrap_or(0);
+
+        let dominant_error_kind = if split_count > 1 && merge_intrusion_count > 0 {
+            Some("mixed".to_string())
+        } else if split_count > 1 {
+            Some("under_merge".to_string())
+        } else if merge_intrusion_count > 0 {
+            Some("over_merge".to_string())
+        } else {
+            Some("none".to_string())
+        };
+
+        out.push(BenchmarkEvalDetailRow {
+            benchmark_run_id: benchmark_run_id.to_string(),
+            policy_variant: policy_variant.to_string(),
+            truth_entity_id: truth_entity_id.clone(),
+            matched_pred_cluster_id,
+            split_count,
+            merge_intrusion_count,
+            dominant_error_kind,
+            detail_json: Some(
+                serde_json::json!({
+                    "truth_wallet_count": wallets.len(),
+                    "pred_cluster_counts": cluster_counts,
+                })
+                .to_string(),
+            ),
+        });
+    }
+    out
+}
+
+fn compute_evidence_kind_calibration_json(
+    wallets: &[GroundTruthWallet],
+    evidence_rows: &[BenchmarkSyntheticEvidenceRow],
+) -> Result<String> {
+    let mut truth_by_wallet = HashMap::new();
+    for w in wallets {
+        truth_by_wallet.insert(w.wallet_id.clone(), w.entity_id.clone());
+    }
+
+    let mut by_kind_key: BTreeMap<String, BTreeMap<String, BTreeSet<String>>> = BTreeMap::new();
+    for row in evidence_rows {
+        if !truth_by_wallet.contains_key(&row.subject_wallet_id) {
+            bail!(
+                "calibration evidence contains unknown subject_wallet_id: {}",
+                row.subject_wallet_id
+            );
+        }
+        by_kind_key
+            .entry(row.evidence_kind.clone())
+            .or_default()
+            .entry(row.counterparty_id.clone())
+            .or_default()
+            .insert(row.subject_wallet_id.clone());
+    }
+
+    let mut out = serde_json::Map::new();
+    for (kind, key_groups) in by_kind_key {
+        let mut pair_count = 0usize;
+        let mut same_truth_pairs = 0usize;
+        for wallets_set in key_groups.values() {
+            let ws = wallets_set.iter().cloned().collect::<Vec<_>>();
+            for i in 0..ws.len() {
+                for j in (i + 1)..ws.len() {
+                    pair_count += 1;
+                    if truth_by_wallet.get(&ws[i]) == truth_by_wallet.get(&ws[j]) {
+                        same_truth_pairs += 1;
+                    }
+                }
+            }
+        }
+        let precision = if pair_count == 0 {
+            0.0
+        } else {
+            same_truth_pairs as f64 / pair_count as f64
+        };
+        out.insert(
+            kind,
+            serde_json::json!({
+                "pair_count": pair_count,
+                "same_truth_pairs": same_truth_pairs,
+                "precision": precision,
+            }),
+        );
+    }
+    Ok(serde_json::Value::Object(out).to_string())
 }
 
 fn synthetic_rows_to_attestations(rows: &[SyntheticEvidenceRow]) -> Result<Vec<Attestation>> {
@@ -370,8 +777,7 @@ pub fn emit_synthetic_evidence(
     config: &SyntheticEvidenceConfig,
 ) -> Vec<SyntheticEvidenceRow> {
     let mut rows = Vec::new();
-    let mut by_entity: std::collections::BTreeMap<&str, Vec<&GroundTruthWallet>> =
-        std::collections::BTreeMap::new();
+    let mut by_entity: BTreeMap<&str, Vec<&GroundTruthWallet>> = BTreeMap::new();
     for wallet in &dataset.wallets {
         by_entity
             .entry(wallet.entity_id.as_str())
@@ -384,14 +790,29 @@ pub fn emit_synthetic_evidence(
             "bucket:{}:{}:{}",
             dataset.scenario_id, dataset.seed, entity_id
         )) % 8) as i64;
+        let base_time = base_bucket * 1_000_000;
 
-        let funder = format!(
-            "0x{:040x}",
-            stable_hash64(&format!(
-                "funder:{}:{}:{}",
-                dataset.scenario_id, dataset.seed, entity_id
-            ))
-        );
+        let mut funder_keys: Vec<String> =
+            Vec::with_capacity(config.funded_by_keys_per_entity.max(1));
+        for k in 0..config.funded_by_keys_per_entity {
+            funder_keys.push(format!(
+                "0x{:040x}",
+                stable_hash64(&format!(
+                    "funder_key:{}:{}:{}:{}",
+                    dataset.scenario_id, dataset.seed, entity_id, k
+                ))
+            ));
+        }
+        let mut sink_keys: Vec<String> = Vec::with_capacity(config.sink_keys_per_entity.max(1));
+        for s in 0..config.sink_keys_per_entity {
+            sink_keys.push(format!(
+                "0x{:040x}",
+                stable_hash64(&format!(
+                    "sink_key:{}:{}:{}:{}",
+                    dataset.scenario_id, dataset.seed, entity_id, s
+                ))
+            ));
+        }
         let safe_owner = format!(
             "0x{:040x}",
             stable_hash64(&format!(
@@ -416,16 +837,35 @@ pub fn emit_synthetic_evidence(
 
         for (ix, wallet) in wallets.iter().enumerate() {
             if config.emit_funded_by {
-                rows.push(make_evidence_row(EvidenceRowInput {
-                    dataset,
-                    subject_wallet_id: wallet.wallet_id.as_str(),
-                    counterparty_id: funder.as_str(),
-                    evidence_kind: "funded_by",
-                    strength_hint: "medium",
-                    bucket: base_bucket,
-                    sequence_index: ix as i64,
-                    entity_id,
-                }));
+                for (k, funder_key) in funder_keys.iter().enumerate() {
+                    rows.push(make_evidence_row(EvidenceRowInput {
+                        dataset,
+                        subject_wallet_id: wallet.wallet_id.as_str(),
+                        counterparty_id: funder_key.as_str(),
+                        evidence_kind: "funded_by",
+                        strength_hint: "medium",
+                        bucket: base_bucket,
+                        sequence_index: base_time
+                            + (ix as i64) * config.funded_by_wallet_time_step
+                            + (k as i64) * config.funded_by_key_time_step,
+                        entity_id,
+                    }));
+                }
+                for (s, sink_key) in sink_keys.iter().enumerate() {
+                    rows.push(make_evidence_row(EvidenceRowInput {
+                        dataset,
+                        subject_wallet_id: wallet.wallet_id.as_str(),
+                        counterparty_id: sink_key.as_str(),
+                        evidence_kind: "funded_by",
+                        strength_hint: "medium",
+                        bucket: base_bucket + 1,
+                        sequence_index: base_time
+                            + config.sink_time_offset
+                            + (ix as i64) * config.funded_by_wallet_time_step
+                            + (s as i64) * config.funded_by_key_time_step,
+                        entity_id,
+                    }));
+                }
             }
             if config.emit_safe_owner {
                 rows.push(make_evidence_row(EvidenceRowInput {
@@ -462,6 +902,48 @@ pub fn emit_synthetic_evidence(
                     sequence_index: ix as i64,
                     entity_id,
                 }));
+            }
+        }
+    }
+
+    if config.emit_funded_by {
+        if let Some(spec) = config.service_hub_contamination.as_ref() {
+            if spec.wallet_fraction.is_finite()
+                && spec.wallet_fraction > 0.0
+                && spec.wallet_fraction <= 1.0
+            {
+                let mut all_wallets = dataset
+                    .wallets
+                    .iter()
+                    .map(|w| (w.wallet_id.as_str(), w.entity_id.as_str()))
+                    .collect::<Vec<_>>();
+                all_wallets.sort_by_key(|(wallet_id, _)| {
+                    stable_hash64(&format!(
+                        "hub_select:{}:{}:{}",
+                        dataset.scenario_id, dataset.seed, wallet_id
+                    ))
+                });
+                let n = ((all_wallets.len() as f64) * spec.wallet_fraction).round() as usize;
+                let n = n.min(all_wallets.len());
+                let hub_funder = format!(
+                    "0x{:040x}",
+                    stable_hash64(&format!(
+                        "service_hub_funder:{}:{}",
+                        dataset.scenario_id, dataset.seed
+                    ))
+                );
+                for (ix, (wallet_id, entity_id)) in all_wallets.into_iter().take(n).enumerate() {
+                    rows.push(make_evidence_row(EvidenceRowInput {
+                        dataset,
+                        subject_wallet_id: wallet_id,
+                        counterparty_id: hub_funder.as_str(),
+                        evidence_kind: "funded_by",
+                        strength_hint: "medium",
+                        bucket: 0,
+                        sequence_index: 10_000 + ix as i64,
+                        entity_id,
+                    }));
+                }
             }
         }
     }
@@ -705,7 +1187,7 @@ mod tests {
         let kinds = a
             .iter()
             .map(|r| r.evidence_kind.as_str())
-            .collect::<std::collections::BTreeSet<_>>();
+            .collect::<BTreeSet<_>>();
         assert!(kinds.contains("funded_by"));
         assert!(kinds.contains("safe_owner"));
         assert!(kinds.contains("did_controller"));
@@ -731,6 +1213,8 @@ mod tests {
             emit_safe_owner: false,
             emit_did_controller: false,
             emit_ens_handle: false,
+            service_hub_contamination: None,
+            ..SyntheticEvidenceConfig::default()
         };
         let rows = builder.build_evidence_rows(&cfg).expect("rows");
         assert!(!rows.is_empty());
@@ -905,5 +1389,590 @@ mod tests {
         .expect("conservative count");
         assert_eq!(naive_count, 6);
         assert_eq!(conservative_count, 6);
+    }
+
+    #[tokio::test]
+    async fn evaluator_persists_minimal_pairwise_metrics() {
+        let repo = test_repo().await;
+        let spec = ScenarioSpec {
+            scenario_id: "S1_clean_shared_funder".to_string(),
+            entity_count: 3,
+            wallets_per_entity: 2,
+            governance_ratio: 0.33,
+            control_ratio: 0.33,
+        };
+        let builder = SyntheticDatasetBuilder::new(spec, 88);
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-eval-1".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S1_clean_shared_funder".to_string(),
+            seed: 88,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap-88".to_string(),
+            code_commit: "commit-88".to_string(),
+        };
+        builder
+            .persist_snapshot(&repo, &run, &SyntheticEvidenceConfig::default())
+            .await
+            .expect("persist snapshot");
+        builder
+            .run_policy_comparison_and_persist(
+                &repo,
+                "bench-eval-1",
+                &SyntheticEvidenceConfig::default(),
+                &BenchmarkPolicyComparisonConfig::default(),
+            )
+            .await
+            .expect("policy compare");
+        let metrics = builder
+            .evaluate_policy_metrics_and_persist(&repo, "bench-eval-1", "naive_funded_by")
+            .await
+            .expect("eval metrics");
+        assert!((0.0..=1.0).contains(&metrics.precision));
+        assert!((0.0..=1.0).contains(&metrics.recall));
+        assert!((0.0..=1.0).contains(&metrics.f1));
+        assert!((0.0..=1.0).contains(&metrics.over_merge_rate));
+        assert!((0.0..=1.0).contains(&metrics.under_merge_rate));
+        assert!(metrics.cluster_fragmentation >= 0.0);
+        assert!(metrics.giant_component_inflation >= 0.0);
+
+        let row_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM benchmark_eval_metrics
+             WHERE benchmark_run_id = ?1 AND policy_variant = 'naive_funded_by'",
+        )
+        .bind("bench-eval-1")
+        .fetch_one(repo.pool())
+        .await
+        .expect("metrics row count");
+        assert_eq!(row_count, 1);
+
+        let detail_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM benchmark_eval_details
+             WHERE benchmark_run_id = ?1 AND policy_variant = 'naive_funded_by'",
+        )
+        .bind("bench-eval-1")
+        .fetch_one(repo.pool())
+        .await
+        .expect("details row count");
+        assert_eq!(detail_count, 3);
+
+        assert!(
+            metrics
+                .calibration_json_by_evidence_kind
+                .as_deref()
+                .unwrap_or("")
+                .contains("funded_by"),
+            "calibration JSON should include evidence-kind stats"
+        );
+    }
+
+    #[tokio::test]
+    async fn report_helpers_render_markdown_and_json() {
+        let repo = test_repo().await;
+        let spec = ScenarioSpec {
+            scenario_id: "S1_clean_shared_funder".to_string(),
+            entity_count: 2,
+            wallets_per_entity: 2,
+            governance_ratio: 0.5,
+            control_ratio: 0.5,
+        };
+        let builder = SyntheticDatasetBuilder::new(spec, 101);
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-report-1".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S1_clean_shared_funder".to_string(),
+            seed: 101,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap-101".to_string(),
+            code_commit: "commit-101".to_string(),
+        };
+        builder
+            .persist_snapshot(&repo, &run, &SyntheticEvidenceConfig::default())
+            .await
+            .expect("persist");
+        builder
+            .run_policy_comparison_and_persist(
+                &repo,
+                "bench-report-1",
+                &SyntheticEvidenceConfig::default(),
+                &BenchmarkPolicyComparisonConfig::default(),
+            )
+            .await
+            .expect("compare");
+        builder
+            .evaluate_policy_metrics_and_persist(&repo, "bench-report-1", "naive_funded_by")
+            .await
+            .expect("eval naive");
+        builder
+            .evaluate_policy_metrics_and_persist(&repo, "bench-report-1", "conservative_funded_by")
+            .await
+            .expect("eval conservative");
+
+        let md = builder
+            .render_eval_report_markdown(&repo, "bench-report-1")
+            .await
+            .expect("md report");
+        assert!(md.contains("Benchmark Evaluation Report"));
+        assert!(md.contains("naive_funded_by"));
+        assert!(md.contains("conservative_funded_by"));
+
+        let json = builder
+            .render_eval_report_json(&repo, "bench-report-1")
+            .await
+            .expect("json report");
+        assert_eq!(
+            json.get("benchmark_run_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+            "bench-report-1"
+        );
+        let metrics_len = json
+            .get("metrics")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        assert_eq!(metrics_len, 2);
+    }
+
+    #[tokio::test]
+    async fn evaluator_rejects_extra_predicted_wallets() {
+        let repo = test_repo().await;
+        let spec = ScenarioSpec {
+            scenario_id: "S1_clean_shared_funder".to_string(),
+            entity_count: 2,
+            wallets_per_entity: 1,
+            governance_ratio: 0.5,
+            control_ratio: 0.5,
+        };
+        let builder = SyntheticDatasetBuilder::new(spec, 501);
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-extra-wallet".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S1_clean_shared_funder".to_string(),
+            seed: 501,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap-501".to_string(),
+            code_commit: "commit-501".to_string(),
+        };
+        builder
+            .persist_snapshot(&repo, &run, &SyntheticEvidenceConfig::default())
+            .await
+            .expect("persist");
+        builder
+            .run_policy_comparison_and_persist(
+                &repo,
+                "bench-extra-wallet",
+                &SyntheticEvidenceConfig::default(),
+                &BenchmarkPolicyComparisonConfig::default(),
+            )
+            .await
+            .expect("policy compare");
+        let _ = repo
+            .insert_benchmark_policy_results(&[BenchmarkPolicyResultRow {
+                benchmark_run_id: "bench-extra-wallet".to_string(),
+                policy_variant: "naive_funded_by".to_string(),
+                pred_cluster_id: "cluster_extra".to_string(),
+                wallet_id: "0x9999999999999999999999999999999999999999".to_string(),
+                link_explanation_json: None,
+            }])
+            .await
+            .expect("insert extra");
+        let err = builder
+            .evaluate_policy_metrics_and_persist(&repo, "bench-extra-wallet", "naive_funded_by")
+            .await
+            .expect_err("extra predicted wallet should fail");
+        assert!(err.to_string().contains("predicted wallet set mismatch"));
+    }
+
+    #[tokio::test]
+    async fn evaluator_no_positive_pairs_convention_returns_ones() {
+        let repo = test_repo().await;
+        let spec = ScenarioSpec {
+            scenario_id: "S9_negative_control_only".to_string(),
+            entity_count: 3,
+            wallets_per_entity: 1,
+            governance_ratio: 0.0,
+            control_ratio: 0.0,
+        };
+        let builder = SyntheticDatasetBuilder::new(spec, 777);
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-no-positives".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S9_negative_control_only".to_string(),
+            seed: 777,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap-777".to_string(),
+            code_commit: "commit-777".to_string(),
+        };
+        builder
+            .persist_snapshot(&repo, &run, &SyntheticEvidenceConfig::default())
+            .await
+            .expect("persist");
+        builder
+            .run_policy_comparison_and_persist(
+                &repo,
+                "bench-no-positives",
+                &SyntheticEvidenceConfig::default(),
+                &BenchmarkPolicyComparisonConfig::default(),
+            )
+            .await
+            .expect("policy compare");
+        let metrics = builder
+            .evaluate_policy_metrics_and_persist(&repo, "bench-no-positives", "naive_funded_by")
+            .await
+            .expect("evaluate");
+        assert!((metrics.precision - 1.0).abs() < 1e-9);
+        assert!((metrics.recall - 1.0).abs() < 1e-9);
+        assert!((metrics.f1 - 1.0).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    async fn evaluator_calibration_uses_persisted_evidence_rows() {
+        let repo = test_repo().await;
+        let spec = ScenarioSpec {
+            scenario_id: "S1_clean_shared_funder".to_string(),
+            entity_count: 2,
+            wallets_per_entity: 2,
+            governance_ratio: 0.5,
+            control_ratio: 0.5,
+        };
+        let builder = SyntheticDatasetBuilder::new(spec, 909);
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-calibration-source".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S1_clean_shared_funder".to_string(),
+            seed: 909,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap-909".to_string(),
+            code_commit: "commit-909".to_string(),
+        };
+        builder
+            .persist_snapshot(
+                &repo,
+                &run,
+                &SyntheticEvidenceConfig {
+                    emit_funded_by: true,
+                    emit_safe_owner: false,
+                    emit_did_controller: false,
+                    emit_ens_handle: false,
+                    service_hub_contamination: None,
+                    ..SyntheticEvidenceConfig::default()
+                },
+            )
+            .await
+            .expect("persist with funded_only");
+        builder
+            .run_policy_comparison_and_persist(
+                &repo,
+                "bench-calibration-source",
+                &SyntheticEvidenceConfig {
+                    emit_funded_by: true,
+                    emit_safe_owner: false,
+                    emit_did_controller: false,
+                    emit_ens_handle: false,
+                    service_hub_contamination: None,
+                    ..SyntheticEvidenceConfig::default()
+                },
+                &BenchmarkPolicyComparisonConfig::default(),
+            )
+            .await
+            .expect("policy compare");
+        let metrics = builder
+            .evaluate_policy_metrics_and_persist(
+                &repo,
+                "bench-calibration-source",
+                "naive_funded_by",
+            )
+            .await
+            .expect("evaluate");
+        let calibration = metrics
+            .calibration_json_by_evidence_kind
+            .unwrap_or_default();
+        assert!(calibration.contains("funded_by"));
+        assert!(!calibration.contains("safe_owner"));
+        assert!(!calibration.contains("did_controller"));
+        assert!(!calibration.contains("ens_handle"));
+    }
+
+    #[tokio::test]
+    async fn evaluator_calibration_rejects_unknown_evidence_wallet() {
+        let repo = test_repo().await;
+        let spec = ScenarioSpec {
+            scenario_id: "S1_clean_shared_funder".to_string(),
+            entity_count: 2,
+            wallets_per_entity: 1,
+            governance_ratio: 0.5,
+            control_ratio: 0.5,
+        };
+        let builder = SyntheticDatasetBuilder::new(spec, 1001);
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-calibration-unknown-wallet".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S1_clean_shared_funder".to_string(),
+            seed: 1001,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap-1001".to_string(),
+            code_commit: "commit-1001".to_string(),
+        };
+        builder
+            .persist_snapshot(&repo, &run, &SyntheticEvidenceConfig::default())
+            .await
+            .expect("persist");
+        let _ = repo
+            .insert_benchmark_synthetic_evidence_rows(&[BenchmarkSyntheticEvidenceRow {
+                benchmark_run_id: "bench-calibration-unknown-wallet".to_string(),
+                evidence_id: "ev-unknown-wallet".to_string(),
+                subject_wallet_id: "0x9999999999999999999999999999999999999999".to_string(),
+                counterparty_id: "0xfunder".to_string(),
+                evidence_kind: "funded_by".to_string(),
+                strength_hint: "medium".to_string(),
+                event_time_bucket: Some("t0".to_string()),
+                sequence_index: Some(1),
+                metadata_json: None,
+            }])
+            .await
+            .expect("inject unknown evidence");
+        builder
+            .run_policy_comparison_and_persist(
+                &repo,
+                "bench-calibration-unknown-wallet",
+                &SyntheticEvidenceConfig::default(),
+                &BenchmarkPolicyComparisonConfig::default(),
+            )
+            .await
+            .expect("policy compare");
+        let err = builder
+            .evaluate_policy_metrics_and_persist(
+                &repo,
+                "bench-calibration-unknown-wallet",
+                "naive_funded_by",
+            )
+            .await
+            .expect_err("unknown wallet in evidence should fail calibration");
+        assert!(err.to_string().contains("unknown subject_wallet_id"));
+    }
+
+    #[tokio::test]
+    async fn service_hub_contamination_makes_conservative_less_overmerged() {
+        let repo = test_repo().await;
+        let spec = ScenarioSpec {
+            scenario_id: "S5_service_hub_contaminated".to_string(),
+            entity_count: 12,
+            wallets_per_entity: 2,
+            governance_ratio: 0.25,
+            control_ratio: 0.25,
+        };
+        let builder = SyntheticDatasetBuilder::new(spec, 4242);
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-hub-1".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S5_service_hub_contaminated".to_string(),
+            seed: 4242,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap-4242".to_string(),
+            code_commit: "commit-4242".to_string(),
+        };
+        let cfg = SyntheticEvidenceConfig {
+            emit_funded_by: true,
+            emit_safe_owner: false,
+            emit_did_controller: false,
+            emit_ens_handle: false,
+            service_hub_contamination: Some(ServiceHubContaminationSpec {
+                wallet_fraction: 0.8,
+            }),
+            ..SyntheticEvidenceConfig::default()
+        };
+        builder
+            .persist_snapshot(&repo, &run, &cfg)
+            .await
+            .expect("persist");
+        builder
+            .run_policy_comparison_and_persist(
+                &repo,
+                "bench-hub-1",
+                &cfg,
+                &BenchmarkPolicyComparisonConfig::default(),
+            )
+            .await
+            .expect("policy compare");
+        let naive = builder
+            .evaluate_policy_metrics_and_persist(&repo, "bench-hub-1", "naive_funded_by")
+            .await
+            .expect("eval naive");
+        let conservative = builder
+            .evaluate_policy_metrics_and_persist(&repo, "bench-hub-1", "conservative_funded_by")
+            .await
+            .expect("eval conservative");
+
+        assert!(
+            conservative.over_merge_rate <= naive.over_merge_rate,
+            "conservative should not over-merge more than naive under service-hub contamination"
+        );
+        assert!(
+            conservative.precision >= naive.precision,
+            "conservative precision should be at least naive under service-hub contamination"
+        );
+    }
+
+    #[tokio::test]
+    async fn conservative_funded_only_merges_via_repeated_funder_keys_and_bursts() {
+        let repo = test_repo().await;
+        let spec = ScenarioSpec {
+            scenario_id: "S3_short_burst".to_string(),
+            entity_count: 2,
+            wallets_per_entity: 2,
+            governance_ratio: 1.0,
+            control_ratio: 0.0,
+        };
+        let builder = SyntheticDatasetBuilder::new(spec, 333);
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-funded-only-1".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S3_short_burst".to_string(),
+            seed: 333,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap-333".to_string(),
+            code_commit: "commit-333".to_string(),
+        };
+
+        let cfg = SyntheticEvidenceConfig {
+            emit_funded_by: true,
+            emit_safe_owner: false,
+            emit_did_controller: false,
+            emit_ens_handle: false,
+            service_hub_contamination: None,
+            funded_by_keys_per_entity: 2,
+            sink_keys_per_entity: 0,
+            funded_by_wallet_time_step: 100,
+            funded_by_key_time_step: 10,
+            sink_time_offset: 20_000,
+        };
+
+        builder
+            .persist_snapshot(&repo, &run, &cfg)
+            .await
+            .expect("persist");
+
+        builder
+            .run_policy_comparison_and_persist(
+                &repo,
+                &run.benchmark_run_id,
+                &cfg,
+                &BenchmarkPolicyComparisonConfig {
+                    min_evidence: 1,
+                    fan_out_cap: 50,
+                    conservative_service_fan_out_cap: 50,
+                    conservative_min_shared_keys: 2,
+                    conservative_min_short_burst_hits: 2,
+                    conservative_short_burst_block_delta: 5_000,
+                },
+            )
+            .await
+            .expect("policy compare");
+
+        let cluster_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(DISTINCT pred_cluster_id)
+             FROM benchmark_policy_results
+             WHERE benchmark_run_id = ?1 AND policy_variant = 'conservative_funded_by'",
+        )
+        .bind(&run.benchmark_run_id)
+        .fetch_one(repo.pool())
+        .await
+        .expect("cluster count");
+
+        assert_eq!(
+            cluster_count, 2,
+            "wallets within each truth entity should merge"
+        );
+    }
+
+    #[tokio::test]
+    async fn conservative_funded_only_merges_via_sink_keys() {
+        let repo = test_repo().await;
+        let spec = ScenarioSpec {
+            scenario_id: "S4_common_sink".to_string(),
+            entity_count: 2,
+            wallets_per_entity: 2,
+            governance_ratio: 1.0,
+            control_ratio: 0.0,
+        };
+        let builder = SyntheticDatasetBuilder::new(spec, 444);
+        let run = BenchmarkRun {
+            benchmark_run_id: "bench-funded-only-2".to_string(),
+            scenario_suite_id: "suite-v0".to_string(),
+            scenario_id: "S4_common_sink".to_string(),
+            seed: 444,
+            generator_version: "v0".to_string(),
+            policy_profile_id: "arbitrum_gov_conservative_v1".to_string(),
+            policy_variant: "naive_funded_by".to_string(),
+            input_snapshot_hash: "snap-444".to_string(),
+            code_commit: "commit-444".to_string(),
+        };
+
+        let cfg = SyntheticEvidenceConfig {
+            emit_funded_by: true,
+            emit_safe_owner: false,
+            emit_did_controller: false,
+            emit_ens_handle: false,
+            service_hub_contamination: None,
+            funded_by_keys_per_entity: 1,
+            sink_keys_per_entity: 2,
+            funded_by_wallet_time_step: 100,
+            funded_by_key_time_step: 10,
+            sink_time_offset: 20_000,
+        };
+
+        builder
+            .persist_snapshot(&repo, &run, &cfg)
+            .await
+            .expect("persist");
+
+        builder
+            .run_policy_comparison_and_persist(
+                &repo,
+                &run.benchmark_run_id,
+                &cfg,
+                &BenchmarkPolicyComparisonConfig {
+                    min_evidence: 1,
+                    fan_out_cap: 50,
+                    conservative_service_fan_out_cap: 50,
+                    conservative_min_shared_keys: 2,
+                    conservative_min_short_burst_hits: 2,
+                    conservative_short_burst_block_delta: 5_000,
+                },
+            )
+            .await
+            .expect("policy compare");
+
+        let cluster_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(DISTINCT pred_cluster_id)
+             FROM benchmark_policy_results
+             WHERE benchmark_run_id = ?1 AND policy_variant = 'conservative_funded_by'",
+        )
+        .bind(&run.benchmark_run_id)
+        .fetch_one(repo.pool())
+        .await
+        .expect("cluster count");
+
+        assert_eq!(
+            cluster_count, 2,
+            "wallets within each truth entity should merge via sink keys"
+        );
     }
 }
