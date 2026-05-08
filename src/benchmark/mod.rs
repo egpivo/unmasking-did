@@ -2119,7 +2119,7 @@ mod tests {
         let repo = test_repo().await;
         let spec = ScenarioSpec {
             scenario_id: "S5_service_hub_contaminated".to_string(),
-            entity_count: 12,
+            entity_count: 36,
             wallets_per_entity: 2,
             governance_ratio: 0.25,
             control_ratio: 0.25,
@@ -2146,17 +2146,44 @@ mod tests {
             }),
             ..SyntheticEvidenceConfig::default()
         };
+        let policy_cfg = BenchmarkPolicyComparisonConfig {
+            // Keep global cap high so funded_by fan-out filtering here is driven by
+            // conservative service_fan_out_cap rather than the shared legacy cap.
+            fan_out_cap: 10_000,
+            conservative_service_fan_out_cap: 15,
+            ..BenchmarkPolicyComparisonConfig::default()
+        };
+
+        let storage_evidence = builder
+            .build_storage_evidence_rows("bench-hub-1", &cfg)
+            .expect("storage evidence");
+        let mut funded_by_fanout: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for row in &storage_evidence {
+            if row.evidence_kind == "funded_by" {
+                funded_by_fanout
+                    .entry(row.counterparty_id.clone())
+                    .or_default()
+                    .insert(row.subject_wallet_id.clone());
+            }
+        }
+        let max_funded_by_fanout = funded_by_fanout
+            .values()
+            .map(std::collections::BTreeSet::len)
+            .max()
+            .unwrap_or(0);
+        assert!(
+            max_funded_by_fanout > policy_cfg.conservative_service_fan_out_cap,
+            "test setup must exceed conservative service fan-out cap (max fanout={}, cap={})",
+            max_funded_by_fanout,
+            policy_cfg.conservative_service_fan_out_cap
+        );
+
         builder
             .persist_snapshot(&repo, &run, &cfg)
             .await
             .expect("persist");
         builder
-            .run_policy_comparison_and_persist(
-                &repo,
-                "bench-hub-1",
-                &cfg,
-                &BenchmarkPolicyComparisonConfig::default(),
-            )
+            .run_policy_comparison_and_persist(&repo, "bench-hub-1", &cfg, &policy_cfg)
             .await
             .expect("policy compare");
         let naive = builder

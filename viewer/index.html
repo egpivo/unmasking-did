@@ -89,6 +89,23 @@
       line-height: 1.15;
       word-break: break-word;
     }
+    .top-nav {
+      margin-bottom: 0.7rem;
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .top-nav a {
+      display: inline-block;
+      padding: 0.3rem 0.55rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-decoration: none;
+      color: var(--text);
+      background: #fff;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
     .danger { color: var(--danger); }
     .good { color: var(--good); }
     .rules {
@@ -232,6 +249,10 @@
 </head>
 <body>
   <div class="wrap">
+    <section class="top-nav">
+      <a href="./index.html">Real Data Viewer</a>
+      <a href="./benchmark.html">Simulation Viewer</a>
+    </section>
     <section id="hero">
       <h1>Unmasking Coordination in Arbitrum Governance</h1>
       <p class="muted">Naive funded_by linking over-merges. A conservative policy restores interpretable structure.</p>

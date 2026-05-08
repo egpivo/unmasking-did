@@ -1225,6 +1225,85 @@ impl Repo {
             .collect())
     }
 
+    pub async fn latest_benchmark_run_id(&self) -> Result<Option<String>> {
+        let row = sqlx::query(
+            "SELECT r.benchmark_run_id
+             FROM benchmark_runs r
+             WHERE EXISTS (
+                SELECT 1
+                FROM benchmark_eval_metrics m
+                WHERE m.benchmark_run_id = r.benchmark_run_id
+             )
+             ORDER BY r.rowid DESC
+             LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .context("latest_benchmark_run_id query failed")?;
+        Ok(row.map(|r| r.get("benchmark_run_id")))
+    }
+
+    pub async fn benchmark_run_by_id(
+        &self,
+        benchmark_run_id: &str,
+    ) -> Result<Option<BenchmarkRun>> {
+        let row = sqlx::query(
+            "SELECT benchmark_run_id, scenario_suite_id, scenario_id, seed, generator_version,
+                    policy_profile_id, policy_variant, input_snapshot_hash, code_commit
+             FROM benchmark_runs
+             WHERE benchmark_run_id = ?1",
+        )
+        .bind(benchmark_run_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("benchmark_run_by_id query failed")?;
+        Ok(row.map(|r| BenchmarkRun {
+            benchmark_run_id: r.get("benchmark_run_id"),
+            scenario_suite_id: r.get("scenario_suite_id"),
+            scenario_id: r.get("scenario_id"),
+            seed: r.get("seed"),
+            generator_version: r.get("generator_version"),
+            policy_profile_id: r.get("policy_profile_id"),
+            policy_variant: r.get("policy_variant"),
+            input_snapshot_hash: r.get("input_snapshot_hash"),
+            code_commit: r.get("code_commit"),
+        }))
+    }
+
+    pub async fn recent_benchmark_runs(&self, limit: usize) -> Result<Vec<BenchmarkRun>> {
+        let safe_limit = limit.max(1) as i64;
+        let rows = sqlx::query(
+            "SELECT benchmark_run_id, scenario_suite_id, scenario_id, seed, generator_version,
+                    policy_profile_id, policy_variant, input_snapshot_hash, code_commit
+             FROM benchmark_runs
+             WHERE EXISTS (
+                SELECT 1
+                FROM benchmark_eval_metrics m
+                WHERE m.benchmark_run_id = benchmark_runs.benchmark_run_id
+             )
+             ORDER BY rowid DESC
+             LIMIT ?1",
+        )
+        .bind(safe_limit)
+        .fetch_all(&self.pool)
+        .await
+        .context("recent_benchmark_runs query failed")?;
+        Ok(rows
+            .into_iter()
+            .map(|r| BenchmarkRun {
+                benchmark_run_id: r.get("benchmark_run_id"),
+                scenario_suite_id: r.get("scenario_suite_id"),
+                scenario_id: r.get("scenario_id"),
+                seed: r.get("seed"),
+                generator_version: r.get("generator_version"),
+                policy_profile_id: r.get("policy_profile_id"),
+                policy_variant: r.get("policy_variant"),
+                input_snapshot_hash: r.get("input_snapshot_hash"),
+                code_commit: r.get("code_commit"),
+            })
+            .collect())
+    }
+
     pub async fn benchmark_synthetic_evidence_rows(
         &self,
         benchmark_run_id: &str,

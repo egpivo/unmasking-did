@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Unmasking DID - Simulation Viewer</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.45;
+    }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 0.8rem;
+    }
+    .top-nav {
+      margin-bottom: 0.7rem;
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .top-nav a {
+      display: inline-block;
+      padding: 0.3rem 0.55rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-decoration: none;
+      color: var(--text);
+      background: #fff;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .muted { color: var(--muted); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.6rem;
+      margin-top: 0.5rem;
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.55rem;
+      background: #fff;
+    }
+    .card .k {
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .card .v {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-top: 0.1rem;
+      word-break: break-word;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.76rem;
+    }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 0.45rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-size: 0.69rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .inspector {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.65rem;
+      background: #fff;
+      min-height: 120px;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="top-nav">
+      <a href="./index.html">Real Data Viewer</a>
+      <a href="./benchmark.html">Simulation Viewer</a>
+    </section>
+
+    <section>
+      <h1>Simulation Viewer (Phase 4.5)</h1>
+      <p class="muted">Synthetic coordination benchmark results from SQLite (`/api/benchmark/latest`).</p>
+      <div class="cards">
+        <div class="card">
+          <div class="k">Choose Run</div>
+          <div class="v">
+            <select id="bench-run-select" style="width:100%;padding:0.35rem;border:1px solid var(--border);border-radius:8px;">
+              <option value="">latest</option>
+            </select>
+          </div>
+        </div>
+        <div class="card">
+          <div class="k">Manual run_id</div>
+          <div class="v">
+            <input id="bench-run-input" class="mono" placeholder="bench_xxx" style="width:100%;padding:0.35rem;border:1px solid var(--border);border-radius:8px;" />
+            <button id="bench-run-load" style="margin-top:0.35rem;padding:0.3rem 0.6rem;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;">Load</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="k">Quick Action</div>
+          <div class="v">
+            <button id="bench-run-trigger" style="padding:0.4rem 0.7rem;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;">Run Simulation (S5 default)</button>
+            <div id="bench-run-trigger-status" class="muted" style="margin-top:0.35rem;font-size:0.75rem;">Runs S5 + random seed + default conservative cap.</div>
+          </div>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="card"><div class="k">benchmark_run_id</div><div class="v mono" id="bench-run-id">loading...</div></div>
+        <div class="card"><div class="k">scenario / seed</div><div class="v" id="bench-scenario-seed">-</div></div>
+        <div class="card"><div class="k">suite_id</div><div class="v mono" id="bench-suite-id">-</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Naive vs Conservative Metrics</h2>
+      <table>
+        <thead>
+          <tr><th>metric</th><th>naive</th><th>conservative</th></tr>
+        </thead>
+        <tbody id="bench-metrics-body"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Benchmark Caveat</h2>
+      <div class="inspector" id="bench-caveat">-</div>
+    </section>
+
+    <section>
+      <h2>Entity-Level Details (top rows)</h2>
+      <table>
+        <thead>
+          <tr><th>policy</th><th>truth_entity_id</th><th>split_count</th><th>merge_intrusion</th><th>dominant_error_kind</th></tr>
+        </thead>
+        <tbody id="bench-details-body"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Entity Linking Graph (Simulation)</h2>
+      <p class="muted">Identifier nodes are wallets; evidence nodes are shared synthetic signals for the selected benchmark run.</p>
+      <div id="bench-graph-wrap" style="border:1px solid var(--border);border-radius:10px;background:#fff;min-height:520px;position:relative;overflow:hidden;">
+        <svg id="bench-graph" aria-label="benchmark simulation graph" style="width:100%;height:520px;display:block;"></svg>
+      </div>
+    </section>
+  </div>
+
+  <script src="./vendor/d3.v7.min.js"></script>
+  <script src="./benchmark.js"></script>
+</body>
+</html>
